@@ -449,82 +449,112 @@ app.get("/api/teams", (req, res) => {
   }
 });
 
-// List saved prompt templates (file names without the .txt extension).
+// A prompt "category" is a subdirectory of Prompts/ (empty string = top level).
+// Resolve it safely to an absolute directory inside PROMPTS_DIR.
+function promptCategoryDir(category) {
+  const c = typeof category === "string" ? category.trim() : "";
+  if (!c) return PROMPTS_DIR;
+  if (c.includes("/") || c.includes("\\") || c.includes("..") || /[:*?"<>|]/.test(c)) {
+    throw new Error("Invalid category.");
+  }
+  const dir = path.join(PROMPTS_DIR, c);
+  if (!path.resolve(dir).startsWith(path.resolve(PROMPTS_DIR) + path.sep)) {
+    throw new Error("Invalid category.");
+  }
+  return dir;
+}
+
+function isValidPromptName(name) {
+  return (
+    typeof name === "string" &&
+    name.trim() &&
+    !name.includes("/") &&
+    !name.includes("\\") &&
+    !name.includes("..") &&
+    !/[:*?"<>|]/.test(name)
+  );
+}
+
+// List the prompt categories (subdirectories of Prompts/).
+app.get("/api/prompt-categories", (req, res) => {
+  try {
+    if (!fs.existsSync(PROMPTS_DIR)) return res.json({ categories: [] });
+    const categories = fs
+      .readdirSync(PROMPTS_DIR, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort((a, b) => a.localeCompare(b));
+    res.json({ categories });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List saved prompt templates in a category (file names without .txt).
 app.get("/api/prompts", (req, res) => {
   try {
-    if (!fs.existsSync(PROMPTS_DIR)) return res.json({ prompts: [] });
+    const dir = promptCategoryDir(req.query.category);
+    if (!fs.existsSync(dir)) return res.json({ prompts: [] });
     const prompts = fs
-      .readdirSync(PROMPTS_DIR, { withFileTypes: true })
+      .readdirSync(dir, { withFileTypes: true })
       .filter((d) => d.isFile() && d.name.toLowerCase().endsWith(".txt"))
       .map((d) => d.name.slice(0, -4))
       .sort((a, b) => a.localeCompare(b));
     res.json({ prompts });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
-// Save (create or overwrite) a prompt template from the text box.
+// Save (create or overwrite) a prompt template in the given category.
 app.post("/api/prompts", (req, res) => {
-  const { name, content } = req.body || {};
+  const { name, content, category } = req.body || {};
   if (typeof name !== "string" || !name.trim()) {
     return res.status(400).json({ error: "Please provide a prompt name." });
   }
   const trimmed = name.trim();
-  if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..") || /[:*?"<>|]/.test(trimmed)) {
+  if (!isValidPromptName(trimmed)) {
     return res.status(400).json({ error: "Invalid prompt name (no / \\ .. : * ? \" < > |)." });
   }
   if (typeof content !== "string") {
     return res.status(400).json({ error: "Missing prompt content." });
   }
-  const filePath = path.join(PROMPTS_DIR, `${trimmed}.txt`);
-  if (!path.resolve(filePath).startsWith(path.resolve(PROMPTS_DIR) + path.sep)) {
-    return res.status(400).json({ error: "Invalid prompt name." });
-  }
   try {
-    fs.mkdirSync(PROMPTS_DIR, { recursive: true });
-    fs.writeFileSync(filePath, content, "utf8");
-    res.json({ name: trimmed });
+    const dir = promptCategoryDir(category);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${trimmed}.txt`), content, "utf8");
+    res.json({ name: trimmed, category: (category || "").trim() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
-// Delete a saved prompt file from disk.
+// Delete a saved prompt file from a category.
 app.delete("/api/prompts/:name", (req, res) => {
   const name = req.params.name || "";
-  if (name.includes("/") || name.includes("\\") || name.includes("..")) {
-    return res.status(400).json({ error: "Invalid prompt name." });
-  }
-  const filePath = path.join(PROMPTS_DIR, `${name}.txt`);
-  if (!path.resolve(filePath).startsWith(path.resolve(PROMPTS_DIR) + path.sep)) {
-    return res.status(400).json({ error: "Invalid prompt name." });
-  }
+  if (!isValidPromptName(name)) return res.status(400).json({ error: "Invalid prompt name." });
   try {
+    const dir = promptCategoryDir(req.query.category);
+    const filePath = path.join(dir, `${name}.txt`);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Prompt not found." });
     fs.rmSync(filePath, { force: true });
     res.json({ name });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
-// Return the text of a saved prompt (name is the file name without .txt).
+// Return the text of a saved prompt in a category.
 app.get("/api/prompts/:name", (req, res) => {
   const name = req.params.name || "";
-  if (name.includes("/") || name.includes("\\") || name.includes("..")) {
-    return res.status(400).json({ error: "Invalid prompt name." });
-  }
-  const filePath = path.join(PROMPTS_DIR, `${name}.txt`);
-  // Ensure the resolved path stays inside the Prompts directory.
-  if (!path.resolve(filePath).startsWith(path.resolve(PROMPTS_DIR) + path.sep)) {
-    return res.status(400).json({ error: "Invalid prompt name." });
-  }
+  if (!isValidPromptName(name)) return res.status(400).json({ error: "Invalid prompt name." });
   try {
+    const dir = promptCategoryDir(req.query.category);
+    const filePath = path.join(dir, `${name}.txt`);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Prompt not found." });
     res.json({ name, content: fs.readFileSync(filePath, "utf8") });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 

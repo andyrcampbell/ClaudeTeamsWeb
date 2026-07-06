@@ -275,16 +275,36 @@ option, optgroup { background: #0f1b2e; color: var(--white); }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
   margin: 0 0 14px;
 }
+.prompt-header-left,
+.prompt-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+/* Gap between Category and "Load a saved prompt" matches the button gap (10px). */
+.prompt-header-right { gap: 10px; }
 .prompt-heading {
   font-size: 20px;
   font-weight: 600;
   letter-spacing: 0.01em;
   margin: 0;
 }
-.prompt-select { flex: 0 1 280px; }
+/* Smaller than the "Prompt" heading, in the studio-subtitle colour. */
+.prompt-category-label {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+#promptCategorySelect { flex: 0 1 150px; }
+#promptSelect { flex: 0 1 230px; }
+.prompt-select { min-width: 0; }
 
 #prompt {
   height: 190px;

@@ -56,10 +56,18 @@
     <!-- Right panel: setup prompt -->
     <section class="panel panel-right">
       <div class="prompt-header">
-        <h2 class="prompt-heading">Prompt</h2>
-        <select id="promptSelect" class="prompt-select">
-          <option value="">Load a saved prompt…</option>
-        </select>
+        <div class="prompt-header-left">
+          <h2 class="prompt-heading">Prompt</h2>
+        </div>
+        <div class="prompt-header-right">
+          <label for="promptCategorySelect" class="prompt-category-label">Prompt Category</label>
+          <select id="promptCategorySelect" class="prompt-select" title="Prompt category (subfolder of Prompts)">
+            <option value="">(Top level)</option>
+          </select>
+          <select id="promptSelect" class="prompt-select">
+            <option value="">Load a saved prompt…</option>
+          </select>
+        </div>
       </div>
       <textarea id="prompt" spellcheck="false" placeholder="Type a prompt here, or load one from the dropdown above…"></textarea>
       <div class="prompt-actions">

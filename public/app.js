@@ -480,10 +480,31 @@ $("viewDirBtn").addEventListener("click", async () => {
   }
 });
 
-// --- saved prompt templates ------------------------------------------------
+// --- saved prompt templates (with categories) ------------------------------
+const currentCategory = () => $("promptCategorySelect").value; // "" = top level
+const catQuery = () => `?category=${encodeURIComponent(currentCategory())}`;
+
+// Populate the category dropdown from the subdirectories of Prompts/.
+async function loadPromptCategories() {
+  try {
+    const { categories } = await api("/api/prompt-categories");
+    const sel = $("promptCategorySelect");
+    sel.length = 1; // keep the "General" (top-level) option
+    for (const cat of categories) {
+      const o = document.createElement("option");
+      o.value = cat;
+      o.textContent = cat;
+      sel.appendChild(o);
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
+// Populate the "Load a saved prompt" dropdown for the selected category.
 async function loadPromptList() {
   try {
-    const { prompts } = await api("/api/prompts");
+    const { prompts } = await api(`/api/prompts${catQuery()}`);
     const sel = $("promptSelect");
     sel.length = 1; // keep the placeholder option, drop the rest
     for (const name of prompts) {
@@ -497,7 +518,13 @@ async function loadPromptList() {
   }
 }
 
-// Save the current text box as a prompt template in the Prompts folder.
+// Changing category refreshes the prompt list to that folder's files.
+$("promptCategorySelect").addEventListener("change", () => {
+  $("promptSelect").value = "";
+  loadPromptList();
+});
+
+// Save the current text box as a prompt template in the SELECTED category.
 $("savePromptBtn").addEventListener("click", async () => {
   const content = $("prompt").value;
   if (!content.trim()) return toast("Nothing to save — the text box is empty.", true);
@@ -509,29 +536,30 @@ $("savePromptBtn").addEventListener("click", async () => {
   if (!trimmed) return toast("Please enter a name.", true);
 
   const exists = [...$("promptSelect").options].some((o) => o.value === trimmed);
-  if (exists && !confirm(`A prompt named "${trimmed}" already exists. Overwrite it?`)) return;
+  if (exists && !confirm(`A prompt named "${trimmed}" already exists in this category. Overwrite it?`)) return;
 
   try {
     const data = await api("/api/prompts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: trimmed, content }),
+      body: JSON.stringify({ name: trimmed, content, category: currentCategory() }),
     });
     await loadPromptList();
     $("promptSelect").value = data.name; // select the just-saved prompt
-    toast(`Saved prompt "${data.name}".`);
+    const where = currentCategory() || "(Top level)";
+    toast(`Saved prompt "${data.name}" in ${where}.`);
   } catch (err) {
     toast(err.message, true);
   }
 });
 
-// Delete the selected prompt file from disk and clear the text box.
+// Delete the selected prompt file (from the selected category) and clear the box.
 $("deletePromptBtn").addEventListener("click", async () => {
   const name = $("promptSelect").value;
   if (!name) return toast("Select a prompt in the dropdown to delete.", true);
   if (!confirm(`Delete the prompt file "${name}.txt" from disk? This cannot be undone.`)) return;
   try {
-    await api(`/api/prompts/${encodeURIComponent(name)}`, { method: "DELETE" });
+    await api(`/api/prompts/${encodeURIComponent(name)}${catQuery()}`, { method: "DELETE" });
     await loadPromptList();
     $("promptSelect").value = "";
     $("prompt").value = "";
@@ -546,7 +574,7 @@ $("promptSelect").addEventListener("change", async (e) => {
   const name = e.target.value;
   if (!name) return;
   try {
-    const { content } = await api(`/api/prompts/${encodeURIComponent(name)}`);
+    const { content } = await api(`/api/prompts/${encodeURIComponent(name)}${catQuery()}`);
     $("prompt").value = content;
     toast(`Loaded prompt "${name}".`);
   } catch (err) {
@@ -564,6 +592,7 @@ $("promptSelect").addEventListener("change", async (e) => {
     locationInput.value = "M:\\MyStuff\\MyAITeams\\";
   }
   await refreshTeams();
-  await loadPromptList(); // populate the Prompt dropdown from the Prompts folder
+  await loadPromptCategories(); // populate the category dropdown from Prompts/ subfolders
+  await loadPromptList(); // populate the Prompt dropdown for the current category
   await restoreSessions(); // reconnect to any terminals still running server-side
 })();
