@@ -1,0 +1,13 @@
+# Normalize line endings: store text as LF in the repo, check out native.
+* text=auto
+
+# Force line endings where the file format requires it.
+*.sh   text eol=lf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+# Treat binary assets as binary (no line-ending or diff munging).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary

@@ -41,6 +41,34 @@ opening `claude` in a separate OS terminal window instead.
   from before the restart is gone, but the text transcript is replayed.)
 - Up to 16 concurrent sessions.
 
+## Setting up from a fresh clone
+
+Moving to a new machine (or cloning from GitHub) takes three steps:
+
+```bash
+git clone https://github.com/andyrcampbell/ClaudeTeamsWeb.git
+cd ClaudeTeamsWeb
+npm install
+```
+
+Then launch it:
+
+- **Windows:** double-click `start.cmd` (or run it in a terminal)
+- **macOS / Linux:** `./start.sh`
+
+…and open <http://127.0.0.1:4173>.
+
+Notes:
+
+- `node_modules/` is **not** committed — `npm install` rebuilds it, fetching the
+  correct per-platform `node-pty` binary for that machine.
+- `data/` (persisted sessions, scrollback, and the saved Location) is **not**
+  committed either; it regenerates on first run. On the new machine, click
+  **Unlock → Browse…** to point the app at wherever you want teams stored.
+- Your team folders (`Deliverables` / `Team Register` / `Team Task Data`) live
+  under the **Location**, not inside this repo — copy that folder separately if
+  you want your existing teams.
+
 ## Requirements
 
 - [Node.js](https://nodejs.org) (any recent LTS)
