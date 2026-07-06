@@ -1,0 +1,18 @@
+{
+  "name": "claude-teams-web",
+  "version": "1.0.0",
+  "description": "ACS AI Teams - web rewrite of the ClaudeTeams WinForms utility",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "restart": "node scripts/free-port.js && node server.js",
+    "stop": "node scripts/free-port.js"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "express": "^4.19.2",
+    "node-pty": "^1.1.0",
+    "ws": "^8.21.0"
+  }
+}

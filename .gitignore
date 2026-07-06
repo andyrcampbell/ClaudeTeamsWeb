@@ -1,0 +1,17 @@
+# Dependencies — regenerate with `npm install` (node-pty is a native, per-platform build)
+node_modules/
+
+# Runtime state — persisted sessions, scrollback, and the saved location setting
+data/
+
+# Preview/editor tooling
+.claude/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.log
+
+# Scratch / throwaway test scripts
+_*.cjs
+_*.mjs

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ACS AI Teams</title>
+  <link rel="icon" href="assets/logo.png" />
+  <link rel="stylesheet" href="vendor/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Left panel: branding + team controls -->
+    <section class="panel panel-left">
+      <div class="brand">
+        <img class="logo" src="assets/logo.png" alt="Alternative Concept Studio" />
+        <h1 class="app-title">AI&nbsp;Teams</h1>
+        <p class="brand-sub">Alternative Concept Studio</p>
+      </div>
+
+      <div class="controls">
+      <div class="field-row">
+        <label for="location">Location</label>
+        <div class="field-with-btn">
+          <input type="text" id="location" readonly />
+          <div class="lock-browse">
+            <button id="lockBtn" class="btn btn-small" title="Unlock to change the location">Unlock</button>
+            <button id="browseBtn" class="btn btn-small" title="Browse for a folder">Browse…</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <label for="teamName">Team Name</label>
+        <div class="field-with-btn">
+          <input type="text" id="teamName" list="teamList" autocomplete="off" placeholder="Select or type a team name" />
+          <datalist id="teamList"></datalist>
+          <button id="refreshBtn" class="btn btn-small">Refresh List</button>
+        </div>
+      </div>
+
+      <div class="actions-grid">
+        <button id="createBtn" class="btn btn-primary">Create/Activate Team</button>
+        <button id="deleteBtn" class="btn btn-primary">Delete Team</button>
+      </div>
+
+      <button id="claudeDesktopBtn" class="btn btn-desktop">Open Claude Desktop</button>
+      </div>
+    </section>
+
+    <!-- Right panel: setup prompt -->
+    <section class="panel panel-right">
+      <div class="prompt-header">
+        <h2 class="prompt-heading">Prompt</h2>
+        <select id="promptSelect" class="prompt-select">
+          <option value="">Load a saved prompt…</option>
+        </select>
+      </div>
+      <textarea id="prompt" spellcheck="false" placeholder="Type a prompt here, or load one from the dropdown above…"></textarea>
+      <div class="prompt-actions">
+        <button id="sendTextBtn" class="btn btn-secondary">Send Text to Selected Terminal</button>
+        <button id="savePromptBtn" class="btn btn-secondary">Save Prompt</button>
+        <button id="deletePromptBtn" class="btn btn-secondary">Delete Prompt File</button>
+        <button id="viewDirBtn" class="btn btn-secondary">View Team Directory</button>
+      </div>
+
+      <div class="open-terminals">
+        <label for="openTerminalsSelect">Open Terminals</label>
+        <select id="openTerminalsSelect" disabled>
+          <option value="">No open terminals</option>
+        </select>
+      </div>
+
+      <div class="slash-commands">
+        <label for="slashSelect">Slash Command</label>
+        <select id="slashSelect">
+          <option value="">Send a / command to the selected terminal…</option>
+          <optgroup label="Session &amp; context">
+            <option value="/help">/help — list available commands</option>
+            <option value="/clear">/clear — clear the conversation</option>
+            <option value="/compact">/compact — summarize to free up context</option>
+            <option value="/context">/context — show what's using the context window</option>
+            <option value="/new">/new — start a new conversation</option>
+            <option value="/resume">/resume — resume a previous conversation</option>
+            <option value="/rewind">/rewind — rewind to an earlier checkpoint</option>
+            <option value="/undo">/undo — undo the last change</option>
+            <option value="/export">/export — export the conversation</option>
+            <option value="/recap">/recap — recap the conversation so far</option>
+            <option value="/btw">/btw — aside that isn't added to history</option>
+          </optgroup>
+          <optgroup label="Model &amp; mode">
+            <option value="/model">/model — switch the model</option>
+            <option value="/effort">/effort — adjust reasoning effort</option>
+            <option value="/plan">/plan — enter plan mode</option>
+            <option value="/fast">/fast — toggle fast mode</option>
+          </optgroup>
+          <optgroup label="Info &amp; account">
+            <option value="/cost">/cost — session token cost</option>
+            <option value="/usage">/usage — plan usage limits</option>
+            <option value="/stats">/stats — session statistics</option>
+            <option value="/status">/status — current status</option>
+            <option value="/doctor">/doctor — diagnose the installation</option>
+            <option value="/release-notes">/release-notes — what's new</option>
+            <option value="/login">/login — log in</option>
+            <option value="/logout">/logout — log out</option>
+            <option value="/upgrade">/upgrade — upgrade your plan</option>
+            <option value="/privacy-settings">/privacy-settings — privacy settings</option>
+          </optgroup>
+          <optgroup label="Project &amp; memory">
+            <option value="/init">/init — generate a starter CLAUDE.md</option>
+            <option value="/memory">/memory — edit memory files</option>
+            <option value="/add-dir">/add-dir — add a working directory</option>
+          </optgroup>
+          <optgroup label="Config &amp; setup">
+            <option value="/config">/config — open configuration</option>
+            <option value="/settings">/settings — open settings</option>
+            <option value="/permissions">/permissions — manage tool permissions</option>
+            <option value="/hooks">/hooks — configure hooks</option>
+            <option value="/mcp">/mcp — manage MCP servers</option>
+            <option value="/agents">/agents — manage subagents</option>
+            <option value="/skills">/skills — manage skills</option>
+            <option value="/statusline">/statusline — configure the status line</option>
+            <option value="/theme">/theme — change the theme</option>
+            <option value="/keybindings">/keybindings — customize keybindings</option>
+            <option value="/terminal-setup">/terminal-setup — configure terminal keys</option>
+            <option value="/vim">/vim — toggle vim mode</option>
+            <option value="/sandbox">/sandbox — sandbox settings</option>
+            <option value="/ide">/ide — connect to an IDE</option>
+            <option value="/install-github-app">/install-github-app — install the GitHub app</option>
+            <option value="/install-slack-app">/install-slack-app — install the Slack app</option>
+            <option value="/bashes">/bashes — manage background shells</option>
+          </optgroup>
+          <optgroup label="Review &amp; workflows">
+            <option value="/code-review">/code-review — review the current diff</option>
+            <option value="/security-review">/security-review — security review of changes</option>
+            <option value="/review">/review — review a pull request</option>
+            <option value="/verify">/verify — verify a change works</option>
+            <option value="/simplify">/simplify — simplify changed code</option>
+            <option value="/workflows">/workflows — view running workflows</option>
+            <option value="/tasks">/tasks — view tasks</option>
+            <option value="/schedule">/schedule — manage scheduled agents</option>
+            <option value="/run">/run — run the app</option>
+            <option value="/fewer-permission-prompts">/fewer-permission-prompts — reduce prompts</option>
+          </optgroup>
+          <optgroup label="Feedback">
+            <option value="/bug">/bug — report a bug</option>
+            <option value="/feedback">/feedback — send feedback</option>
+            <option value="/exit">/exit — exit Claude Code</option>
+          </optgroup>
+        </select>
+      </div>
+    </section>
+  </div>
+
+  <!-- Embedded terminal overlay (tabbed, multi-session) -->
+  <div id="terminalOverlay" class="terminal-overlay" hidden>
+    <div class="terminal-window">
+      <div class="terminal-bar">
+        <span class="terminal-dot"></span>
+        <div id="terminalTabs" class="terminal-tabs"></div>
+        <button id="terminalMinimize" class="terminal-icon-btn" title="Hide (keep sessions running)">&#8211;</button>
+      </div>
+      <div id="terminalPanes" class="terminal-panes"></div>
+    </div>
+  </div>
+
+  <!-- Floating restore button shown when the overlay is hidden but sessions live -->
+  <button id="terminalRestore" class="terminal-restore" hidden></button>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="vendor/xterm/lib/xterm.js"></script>
+  <script src="vendor/addon-fit/lib/addon-fit.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
