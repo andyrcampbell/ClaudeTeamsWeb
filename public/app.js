@@ -262,12 +262,13 @@ async function detachTab(id) {
 }
 
 // Open a new terminal for a team. Every call creates an additional terminal,
-// even if the team already has one (each gets its own tab).
-async function openTeamTerminal(location, name) {
+// even if the team already has one (each gets its own tab). An optional session
+// name triggers a `/rename <name>` once claude is ready.
+async function openTeamTerminal(location, name, sessionName) {
   const data = await api("/api/terminal/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ location, name }),
+    body: JSON.stringify({ location, name, sessionName }),
   });
   showOverlay();
   createTab(data.id, data.name, data.location);
@@ -392,7 +393,8 @@ $("createBtn").addEventListener("click", async () => {
   try {
     if (ptyAvailable) {
       // Open a new embedded terminal tab running claude for this team.
-      await openTeamTerminal(location, name);
+      const sessionName = $("sessionName").value.trim();
+      await openTeamTerminal(location, name, sessionName);
       await refreshTeams();
     } else {
       // Fallback: server launches claude in a separate OS window.

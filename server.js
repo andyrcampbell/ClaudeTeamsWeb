@@ -230,9 +230,20 @@ function spawnPty(session) {
 
   term.onData((data) => {
     // Track whether the app (claude) has bracketed-paste mode enabled, so we
-    // know whether to frame pasted text with the paste markers.
-    if (data.indexOf("\x1b[?2004h") !== -1) session.bracketedPaste = true;
-    else if (data.indexOf("\x1b[?2004l") !== -1) session.bracketedPaste = false;
+    // know whether to frame pasted text with the paste markers. The first time
+    // it turns on, claude's input is ready — a good moment to run /rename.
+    if (data.indexOf("\x1b[?2004h") !== -1) {
+      session.bracketedPaste = true;
+      if (session.pendingRename && !session.renameScheduled) {
+        session.renameScheduled = true;
+        const newName = session.pendingRename;
+        session.pendingRename = null;
+        // Let claude finish rendering its startup UI, then type the command.
+        setTimeout(() => typeCommand(session, `/rename ${newName}`), 3500);
+      }
+    } else if (data.indexOf("\x1b[?2004l") !== -1) {
+      session.bracketedPaste = false;
+    }
 
     session.buffer += data;
     if (session.buffer.length > MAX_SCROLLBACK) {
@@ -280,7 +291,34 @@ function writePaste(session, text) {
   })();
 }
 
-function createSession(location, name) {
+// Type a command into the pty slowly, then press Enter. Paced in small chunks
+// so characters aren't dropped while claude's TUI is still settling.
+function typeCommand(session, text) {
+  const CHUNK = 5;
+  let i = 0;
+  (function next() {
+    if (!session.term) return;
+    if (i < text.length) {
+      try {
+        session.term.write(text.slice(i, i + CHUNK));
+      } catch {
+        return;
+      }
+      i += CHUNK;
+      setTimeout(next, 28);
+    } else {
+      setTimeout(() => {
+        try {
+          if (session.term) session.term.write("\r");
+        } catch {
+          /* ended */
+        }
+      }, 350);
+    }
+  })();
+}
+
+function createSession(location, name, sessionName) {
   const teamDir = path.join(location, name.trim());
   ensureTeamFolders(teamDir);
 
@@ -304,6 +342,9 @@ function createSession(location, name) {
     live: false,
     dirty: false,
     needsRestoreBanner: false,
+    // If a session name was given, run `/rename <name>` once claude is ready.
+    pendingRename: typeof sessionName === "string" && sessionName.trim() ? sessionName.trim() : null,
+    renameScheduled: false,
   };
   sessions.set(id, session);
   spawnPty(session);
@@ -489,7 +530,7 @@ app.get("/api/prompts/:name", (req, res) => {
 
 app.post("/api/terminal/sessions", (req, res) => {
   if (!PTY_AVAILABLE) return res.status(400).json({ error: "Embedded terminal not available." });
-  const { location, name } = req.body || {};
+  const { location, name, sessionName } = req.body || {};
   if (!location || !fs.existsSync(location)) {
     return res.status(400).json({ error: "Location folder does not exist." });
   }
@@ -499,7 +540,7 @@ app.post("/api/terminal/sessions", (req, res) => {
   try {
     const teamDir = path.join(location, name.trim());
     const folderExisted = fs.existsSync(teamDir);
-    const { session, reused } = createSession(location, name);
+    const { session, reused } = createSession(location, name, sessionName);
     res.json({ id: session.id, name: session.name, location: session.location, reused, created: !folderExisted });
   } catch (err) {
     res.status(500).json({ error: err.message });
