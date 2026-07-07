@@ -264,11 +264,11 @@ async function detachTab(id) {
 // Open a new terminal for a team. Every call creates an additional terminal,
 // even if the team already has one (each gets its own tab). An optional session
 // name triggers a `/rename <name>` once claude is ready.
-async function openTeamTerminal(location, name, sessionName) {
+async function openTeamTerminal(location, name, sessionName, resume) {
   const data = await api("/api/terminal/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ location, name, sessionName }),
+    body: JSON.stringify({ location, name, sessionName, resume }),
   });
   showOverlay();
   createTab(data.id, data.name, data.location);
@@ -316,6 +316,50 @@ $("slashSelect").addEventListener("change", (e) => {
   showOverlay();
   activateTab(id);
   toast(`Typed ${cmd} into "${t.label}" — press Enter to run.`);
+});
+
+// --- resumable sessions ----------------------------------------------------
+// Populate the Resume Session dropdown with past claude sessions for the team.
+async function loadSessionResumes() {
+  const sel = $("resumeSelect");
+  sel.length = 1; // keep the placeholder option
+  const location = locationInput.value.trim();
+  const name = teamNameInput.value.trim();
+  if (!name) return;
+  try {
+    const { sessions } = await api(
+      `/api/session-resumes?location=${encodeURIComponent(location)}&name=${encodeURIComponent(name)}`
+    );
+    for (const s of sessions) {
+      const o = document.createElement("option");
+      o.value = s.id;
+      const d = new Date(s.ts);
+      const when = isNaN(d.getTime())
+        ? ""
+        : ` · ${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+      o.textContent = (s.title || "(untitled)") + when;
+      sel.appendChild(o);
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
+// Selecting a session opens a terminal that resumes it (claude --resume <id>).
+$("resumeSelect").addEventListener("change", async (e) => {
+  const id = e.target.value;
+  const label = e.target.selectedOptions[0]?.textContent || "session";
+  e.target.selectedIndex = 0; // reset so the same session can be picked again
+  if (!id) return;
+  const location = locationInput.value.trim();
+  const name = teamNameInput.value.trim();
+  if (!name) return toast("Select a team first.", true);
+  try {
+    await openTeamTerminal(location, name, "", id);
+    toast(`Resuming "${label}"…`);
+  } catch (err) {
+    toast(err.message, true);
+  }
 });
 window.addEventListener("resize", () => {
   if (!$("terminalOverlay").hidden && activeTabId) fitTab(activeTabId);
@@ -382,18 +426,26 @@ locationInput.addEventListener("change", async () => {
 $("refreshBtn").addEventListener("click", () => {
   teamNameInput.value = ""; // clear the team-name selection on manual refresh
   refreshTeams();
+  loadSessionResumes(); // clears the resume list (no team selected)
 });
+
+// Refresh the resume list whenever the selected team changes.
+teamNameInput.addEventListener("change", loadSessionResumes);
 
 // --- create / activate -----------------------------------------------------
 $("createBtn").addEventListener("click", async () => {
   const location = locationInput.value.trim();
   const name = teamNameInput.value.trim();
   if (!name) return toast("Please enter a team name.", true);
+  const sessionName = $("sessionName").value.trim();
+  if (!sessionName) {
+    $("sessionName").focus();
+    return toast("Please enter a Session Name.", true);
+  }
 
   try {
     if (ptyAvailable) {
       // Open a new embedded terminal tab running claude for this team.
-      const sessionName = $("sessionName").value.trim();
       await openTeamTerminal(location, name, sessionName);
       await refreshTeams();
     } else {

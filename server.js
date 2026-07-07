@@ -212,16 +212,20 @@ function killSessionsByDir(teamDir) {
   for (const s of [...sessions.values()]) if (s.alive && s.teamDir === teamDir) killSession(s.id);
 }
 
-function ptyCommand() {
+function ptyCommand(resumeId) {
+  // Resume a specific past session, or start a fresh claude.
+  const claudeCmd = resumeId ? `claude --resume ${resumeId}` : "claude";
   const shell = IS_WIN ? "powershell.exe" : process.env.SHELL || "/bin/bash";
-  const args = IS_WIN ? ["-NoExit", "-Command", "claude"] : ["-i", "-c", `claude; exec "${shell}" -i`];
+  const args = IS_WIN
+    ? ["-NoExit", "-Command", claudeCmd]
+    : ["-i", "-c", `${claudeCmd}; exec "${shell}" -i`];
   return { shell, args };
 }
 
 // Spawn (or respawn) the pty for a session and wire its I/O.
 function spawnPty(session) {
   ensureTeamFolders(session.teamDir);
-  const { shell, args } = ptyCommand();
+  const { shell, args } = ptyCommand(session.resumeId);
   const term = pty.spawn(shell, args, {
     name: "xterm-256color",
     cols: 80,
@@ -322,9 +326,12 @@ function typeCommand(session, text) {
   })();
 }
 
-function createSession(location, name, sessionName) {
+function createSession(location, name, sessionName, resumeId) {
   const teamDir = path.join(location, name.trim());
   ensureTeamFolders(teamDir);
+
+  // Sanitize a resume session id (must look like a session UUID).
+  const resume = typeof resumeId === "string" && /^[a-fA-F0-9-]{8,64}$/.test(resumeId) ? resumeId : null;
 
   // Always create a new session, even if this team already has one open — each
   // Create/Activate opens an additional terminal for the team.
@@ -346,8 +353,10 @@ function createSession(location, name, sessionName) {
     live: false,
     dirty: false,
     needsRestoreBanner: false,
-    // If a session name was given, run `/rename <name>` once claude is ready.
-    pendingRename: typeof sessionName === "string" && sessionName.trim() ? sessionName.trim() : null,
+    // Resume a specific past session (or null to start fresh).
+    resumeId: resume,
+    // If a session name was given (and not resuming), run `/rename <name>` once ready.
+    pendingRename: !resume && typeof sessionName === "string" && sessionName.trim() ? sessionName.trim() : null,
     renameScheduled: false,
   };
   sessions.set(id, session);
@@ -564,7 +573,7 @@ app.get("/api/prompts/:name", (req, res) => {
 
 app.post("/api/terminal/sessions", (req, res) => {
   if (!PTY_AVAILABLE) return res.status(400).json({ error: "Embedded terminal not available." });
-  const { location, name, sessionName } = req.body || {};
+  const { location, name, sessionName, resume } = req.body || {};
   if (!location || !fs.existsSync(location)) {
     return res.status(400).json({ error: "Location folder does not exist." });
   }
@@ -574,7 +583,7 @@ app.post("/api/terminal/sessions", (req, res) => {
   try {
     const teamDir = path.join(location, name.trim());
     const folderExisted = fs.existsSync(teamDir);
-    const { session, reused } = createSession(location, name, sessionName);
+    const { session, reused } = createSession(location, name, sessionName, resume);
     res.json({ id: session.id, name: session.name, location: session.location, reused, created: !folderExisted });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -839,6 +848,64 @@ app.get("/api/team-member-image", (req, res) => {
   if (!path.resolve(filePath).startsWith(path.resolve(galleryDir) + path.sep)) return res.status(400).end();
   if (!fs.existsSync(filePath)) return res.status(404).end();
   res.sendFile(path.resolve(filePath));
+});
+
+// --- resumable claude sessions ---------------------------------------------
+
+// Claude stores per-directory sessions under ~/.claude/projects/<slug>, where
+// the slug is the absolute cwd with every non-alphanumeric char replaced by "-".
+function claudeProjectDir(teamDir) {
+  const slug = path.resolve(teamDir).replace(/[^a-zA-Z0-9]/g, "-");
+  return path.join(os.homedir(), ".claude", "projects", slug);
+}
+
+// List resumable claude sessions for a team, newest first, with their names
+// (the /rename "custom-title"). Capped to the 60 most recent.
+app.get("/api/session-resumes", (req, res) => {
+  const location = req.query.location || "";
+  const name = req.query.name || "";
+  if (!location || !isValidTeamName(name)) {
+    return res.status(400).json({ error: "Invalid location or team name." });
+  }
+  try {
+    const projDir = claudeProjectDir(path.join(location, name.trim()));
+    if (!fs.existsSync(projDir)) return res.json({ sessions: [] });
+    const mtime = (f) => {
+      try {
+        return fs.statSync(path.join(projDir, f)).mtimeMs;
+      } catch {
+        return 0;
+      }
+    };
+    const files = fs
+      .readdirSync(projDir)
+      .filter((f) => f.endsWith(".jsonl"))
+      .map((f) => ({ f, ts: mtime(f) }))
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 60);
+
+    const sessions = files.map(({ f, ts }) => {
+      const id = f.slice(0, -6);
+      let title = null;
+      try {
+        for (const line of fs.readFileSync(path.join(projDir, f), "utf8").split("\n")) {
+          if (line.indexOf('"custom-title"') === -1) continue;
+          try {
+            const o = JSON.parse(line);
+            if (o.type === "custom-title" && o.customTitle) title = o.customTitle; // keep the last one
+          } catch {
+            /* skip bad line */
+          }
+        }
+      } catch {
+        /* unreadable */
+      }
+      return { id, title, ts };
+    });
+    res.json({ sessions });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- WebSocket: attach to a terminal session --------------------------------

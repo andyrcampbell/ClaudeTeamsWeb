@@ -41,7 +41,7 @@
 
       <div class="field-row">
         <label for="sessionName">Session Name</label>
-        <input type="text" id="sessionName" autocomplete="off" placeholder="Optional — names the Claude session" />
+        <input type="text" id="sessionName" autocomplete="off" placeholder="Required — names the Claude session" />
       </div>
 
       <div class="actions-grid">
@@ -161,6 +161,13 @@
             <option value="/feedback">/feedback — send feedback</option>
             <option value="/exit">/exit — exit Claude Code</option>
           </optgroup>
+        </select>
+      </div>
+
+      <div class="resume-sessions">
+        <label for="resumeSelect">Resume Session</label>
+        <select id="resumeSelect" title="Resume a past claude session for the selected team">
+          <option value="">Resume a saved session…</option>
         </select>
       </div>
     </section>
