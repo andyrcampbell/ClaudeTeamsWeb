@@ -789,10 +789,12 @@ app.get("/api/team-members", (req, res) => {
     return res.status(400).json({ error: "Invalid location or team name." });
   }
   const teamDir = path.join(location, name.trim());
-  const profilesDir = path.join(teamDir, "Team");
+  // Member profiles live in "Team" or "Team Register" — use whichever exists.
+  const candidates = [path.join(teamDir, "Team"), path.join(teamDir, "Team Register")];
+  const profilesDir = candidates.find((d) => fs.existsSync(d));
   const galleryDir = path.join(teamDir, "Team Gallery");
   try {
-    if (!fs.existsSync(profilesDir)) return res.json({ members: [] });
+    if (!profilesDir) return res.json({ members: [] });
 
     // Map lowercased image base name -> actual filename.
     const gallery = {};

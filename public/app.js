@@ -496,7 +496,7 @@ function renderMembers(location, name, members) {
   if (!members.length) {
     const empty = document.createElement("div");
     empty.className = "members-empty";
-    empty.textContent = `No team members found for "${name}". (Looked in the team's Team folder.)`;
+    empty.textContent = `No team members found for "${name}". (Looked in the team's Team / Team Register folder.)`;
     carousel.appendChild(empty);
     return;
   }
