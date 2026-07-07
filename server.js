@@ -79,11 +79,15 @@ function isValidTeamName(name) {
   return true;
 }
 
+// Directory names under the location that are not teams and shouldn't appear
+// in the Team Name dropdown.
+const NON_TEAM_DIRS = new Set(["unassigned interviewees"]);
+
 function listTeams(location) {
   if (!location || !fs.existsSync(location)) return [];
   return fs
     .readdirSync(location, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
+    .filter((d) => d.isDirectory() && !NON_TEAM_DIRS.has(d.name.toLowerCase()))
     .map((d) => d.name);
 }
 
@@ -760,6 +764,79 @@ app.post("/api/teams/open", (req, res) => {
   const opener = IS_WIN ? "explorer" : IS_MAC ? "open" : "xdg-open";
   spawn(opener, [teamDir], { stdio: "ignore", detached: true }).on("error", () => {});
   res.json({ status: "opened", team: name.trim() });
+});
+
+// --- team members (roster cards) -------------------------------------------
+
+// Parse a member's name + role from their Team/*.md profile.
+function parseMemberProfile(mdText, fallbackName) {
+  const fullName = mdText.match(/\*\*Full name:\*\*\s*(.+)/i);
+  const roleLine = mdText.match(/\*\*Role:\*\*\s*(.+)/i);
+  // Heading like: "# Mary — HR Director"
+  const heading = mdText.match(/^#\s+(.+?)\s+[—–-]\s+(.+?)\s*$/m);
+  const name = (fullName ? fullName[1] : heading ? heading[1] : fallbackName).replace(/\s+$/, "").trim();
+  const role = (roleLine ? roleLine[1] : heading ? heading[2] : "").replace(/\s+$/, "").trim();
+  return { name, role, isProfile: !!(roleLine || heading) };
+}
+
+const IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
+
+// List a team's members from its /Team/*.md profiles, matched to /Team Gallery images.
+app.get("/api/team-members", (req, res) => {
+  const location = req.query.location || "";
+  const name = req.query.name || "";
+  if (!location || !isValidTeamName(name)) {
+    return res.status(400).json({ error: "Invalid location or team name." });
+  }
+  const teamDir = path.join(location, name.trim());
+  const profilesDir = path.join(teamDir, "Team");
+  const galleryDir = path.join(teamDir, "Team Gallery");
+  try {
+    if (!fs.existsSync(profilesDir)) return res.json({ members: [] });
+
+    // Map lowercased image base name -> actual filename.
+    const gallery = {};
+    if (fs.existsSync(galleryDir)) {
+      for (const f of fs.readdirSync(galleryDir)) {
+        const ext = path.extname(f).toLowerCase();
+        if (IMAGE_EXTS.includes(ext)) gallery[path.basename(f, path.extname(f)).toLowerCase()] = f;
+      }
+    }
+
+    const members = [];
+    for (const entry of fs.readdirSync(profilesDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
+      const base = entry.name.slice(0, -3);
+      const low = base.toLowerCase();
+      if (low === "roster" || low === "hiring-log") continue;
+      let parsed;
+      try {
+        parsed = parseMemberProfile(fs.readFileSync(path.join(profilesDir, entry.name), "utf8"), base);
+      } catch {
+        continue;
+      }
+      if (!parsed.isProfile) continue; // skip non-profile markdown
+      members.push({ name: parsed.name, role: parsed.role, image: gallery[low] || null });
+    }
+    members.sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ members });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Serve a team member's gallery image.
+app.get("/api/team-member-image", (req, res) => {
+  const location = req.query.location || "";
+  const name = req.query.name || "";
+  const file = req.query.file || "";
+  if (!location || !isValidTeamName(name)) return res.status(400).end();
+  if (!file || file.includes("/") || file.includes("\\") || file.includes("..")) return res.status(400).end();
+  const galleryDir = path.join(location, name.trim(), "Team Gallery");
+  const filePath = path.join(galleryDir, file);
+  if (!path.resolve(filePath).startsWith(path.resolve(galleryDir) + path.sep)) return res.status(400).end();
+  if (!fs.existsSync(filePath)) return res.status(404).end();
+  res.sendFile(path.resolve(filePath));
 });
 
 // --- WebSocket: attach to a terminal session --------------------------------

@@ -480,6 +480,79 @@ $("viewDirBtn").addEventListener("click", async () => {
   }
 });
 
+// --- View Team Members (carousel of member cards) --------------------------
+// Default photo: a plain gray 225x300 image, used when a member has no picture.
+const DEFAULT_PHOTO =
+  "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='225'%20height='300'%3E%3Crect%20width='225'%20height='300'%20fill='%23a8a8a8'/%3E%3C/svg%3E";
+
+function closeMembers() {
+  $("membersOverlay").hidden = true;
+  $("membersCarousel").innerHTML = "";
+}
+
+function renderMembers(location, name, members) {
+  const carousel = $("membersCarousel");
+  carousel.innerHTML = "";
+  if (!members.length) {
+    const empty = document.createElement("div");
+    empty.className = "members-empty";
+    empty.textContent = `No team members found for "${name}". (Looked in the team's Team folder.)`;
+    carousel.appendChild(empty);
+    return;
+  }
+  for (const m of members) {
+    const card = document.createElement("div");
+    card.className = "member-card";
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "member-name";
+    nameEl.textContent = m.name;
+    nameEl.title = m.name;
+
+    const img = document.createElement("img");
+    img.className = "member-photo";
+    img.alt = m.name;
+    if (m.image) {
+      img.src =
+        `/api/team-member-image?location=${encodeURIComponent(location)}` +
+        `&name=${encodeURIComponent(name)}&file=${encodeURIComponent(m.image)}`;
+      img.addEventListener("error", () => (img.src = DEFAULT_PHOTO), { once: true });
+    } else {
+      img.src = DEFAULT_PHOTO;
+    }
+
+    const roleEl = document.createElement("div");
+    roleEl.className = "member-role";
+    roleEl.textContent = m.role || "";
+
+    card.append(nameEl, img, roleEl);
+    carousel.appendChild(card);
+  }
+}
+
+$("viewMembersBtn").addEventListener("click", async () => {
+  const location = locationInput.value.trim();
+  const name = teamNameInput.value.trim();
+  if (!name) return toast("Please select a team first.", true);
+  try {
+    const { members } = await api(
+      `/api/team-members?location=${encodeURIComponent(location)}&name=${encodeURIComponent(name)}`
+    );
+    renderMembers(location, name, members);
+    $("membersOverlay").hidden = false;
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+$("membersClose").addEventListener("click", closeMembers);
+$("membersOverlay").addEventListener("click", (e) => {
+  if (e.target === $("membersOverlay")) closeMembers(); // click backdrop to close
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("membersOverlay").hidden) closeMembers();
+});
+
 // --- saved prompt templates (with categories) ------------------------------
 const currentCategory = () => $("promptCategorySelect").value; // "" = top level
 const catQuery = () => `?category=${encodeURIComponent(currentCategory())}`;

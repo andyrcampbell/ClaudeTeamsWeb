@@ -500,6 +500,97 @@ option, optgroup { background: #0f1b2e; color: var(--white); }
 .terminal-restore:hover { background: rgba(33, 33, 58, 0.98); }
 .terminal-restore[hidden] { display: none; }
 
+/* ---- Team Members carousel ---- */
+.members-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 12, 22, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 28px;
+}
+.members-overlay[hidden] { display: none; }
+
+.members-window {
+  width: min(1100px, 96vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(12, 20, 34, 0.92);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.members-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--hairline);
+}
+.members-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex: 1;
+}
+
+.members-carousel {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 22px;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+}
+.member-card {
+  flex: none;
+  width: 225px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+}
+.member-name {
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member-photo {
+  width: 225px;
+  height: 300px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #a8a8a8; /* shows through while loading / behind transparency */
+  display: block;
+}
+.member-role {
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.35;
+}
+.members-empty {
+  color: var(--muted);
+  padding: 40px;
+  font-size: 15px;
+}
+
 /* Thin page scrollbars */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 8px; }

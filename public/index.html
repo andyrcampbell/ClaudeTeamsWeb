@@ -75,6 +75,7 @@
         <button id="savePromptBtn" class="btn btn-secondary">Save Prompt</button>
         <button id="deletePromptBtn" class="btn btn-secondary">Delete Prompt File</button>
         <button id="viewDirBtn" class="btn btn-secondary">View Team Directory</button>
+        <button id="viewMembersBtn" class="btn btn-secondary">View Team Members</button>
       </div>
 
       <div class="open-terminals">
@@ -174,6 +175,17 @@
         <button id="terminalMinimize" class="terminal-icon-btn" title="Hide (keep sessions running)">&#8211;</button>
       </div>
       <div id="terminalPanes" class="terminal-panes"></div>
+    </div>
+  </div>
+
+  <!-- Team Members carousel overlay -->
+  <div id="membersOverlay" class="members-overlay" hidden>
+    <div class="members-window">
+      <div class="members-bar">
+        <span class="members-title">Team Members</span>
+        <button id="membersClose" class="terminal-icon-btn" title="Close">&times;</button>
+      </div>
+      <div id="membersCarousel" class="members-carousel"></div>
     </div>
   </div>
 
