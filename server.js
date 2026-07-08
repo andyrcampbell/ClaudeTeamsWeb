@@ -779,15 +779,42 @@ app.post("/api/teams/open", (req, res) => {
 
 // --- team members (roster cards) -------------------------------------------
 
-// Parse a member's name + role from their Team/*.md profile.
+// Strip markdown emphasis and trailing whitespace from a field value.
+function cleanField(s) {
+  return String(s).replace(/\*\*/g, "").replace(/^\*+|\*+$/g, "").replace(/\s+$/, "").trim();
+}
+
+// Parse a member's name + role from their Team/*.md profile. Handles both
+// styles: "# Name — Role" with **Role:** lines, and "# Name" with the role
+// under a "## Role" section (e.g. a bold "**Business Lead — ...**" line).
 function parseMemberProfile(mdText, fallbackName) {
+  let name = null;
+  let role = null;
+
   const fullName = mdText.match(/\*\*Full name:\*\*\s*(.+)/i);
+  if (fullName) name = cleanField(fullName[1]);
   const roleLine = mdText.match(/\*\*Role:\*\*\s*(.+)/i);
-  // Heading like: "# Mary — HR Director"
-  const heading = mdText.match(/^#\s+(.+?)\s+[—–-]\s+(.+?)\s*$/m);
-  const name = (fullName ? fullName[1] : heading ? heading[1] : fallbackName).replace(/\s+$/, "").trim();
-  const role = (roleLine ? roleLine[1] : heading ? heading[2] : "").replace(/\s+$/, "").trim();
-  return { name, role, isProfile: !!(roleLine || heading) };
+  if (roleLine) role = cleanField(roleLine[1]);
+
+  // First "# ..." heading — may be "# Name" or "# Name — Role".
+  const heading = mdText.match(/^#\s+(.+?)\s*$/m);
+  if (heading) {
+    const dash = heading[1].match(/^(.+?)\s+[—–-]\s+(.+)$/);
+    if (dash) {
+      if (!name) name = cleanField(dash[1]);
+      if (!role) role = cleanField(dash[2]);
+    } else if (!name) {
+      name = cleanField(heading[1]);
+    }
+  }
+
+  // Role given under a "## Role" section as the first line beneath it.
+  if (!role) {
+    const sec = mdText.match(/^##\s+Role\b[^\n]*\r?\n+\s*([^\n]+)/im);
+    if (sec) role = cleanField(sec[1]);
+  }
+
+  return { name: name || fallbackName, role: role || "" };
 }
 
 const IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
@@ -821,6 +848,7 @@ app.get("/api/team-members", (req, res) => {
       if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
       const base = entry.name.slice(0, -3);
       const low = base.toLowerCase();
+      // Skip known non-member files; everything else in the folder is a member.
       if (low === "roster" || low === "hiring-log") continue;
       let parsed;
       try {
@@ -828,7 +856,6 @@ app.get("/api/team-members", (req, res) => {
       } catch {
         continue;
       }
-      if (!parsed.isProfile) continue; // skip non-profile markdown
       members.push({ name: parsed.name, role: parsed.role, image: gallery[low] || null });
     }
     members.sort((a, b) => a.name.localeCompare(b.name));
