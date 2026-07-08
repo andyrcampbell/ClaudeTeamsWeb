@@ -154,13 +154,49 @@ If it isn't installed, you get a toast pointing you to claude.ai/download. The
 Store lookup can take a second or two, so the button shows an immediate
 "Opening…" toast.
 
+## Access from your phone (Tailscale)
+
+The app can't run *on* a phone (it needs Node + the `claude` CLI + `node-pty`),
+but your phone can be a **browser client** to the PC that hosts it — the
+terminals run `claude` on the PC and stream to the phone.
+
+> ⚠️ The embedded terminal hands whoever loads the page an interactive
+> `claude` / shell **on the host PC**. Never expose it to your LAN or the
+> internet unprotected. [Tailscale](https://tailscale.com) (a private, encrypted
+> network of just your own devices) is the safe way in.
+
+By default the server binds to `127.0.0.1` (localhost only). To reach it from a
+phone over Tailscale:
+
+1. Install the **Tailscale app** on the phone and the PC; sign both into the
+   same tailnet.
+2. On the PC, run **`start-tailscale.cmd`** (Windows). It auto-detects the PC's
+   Tailscale IP, binds **only** to that interface (so it's *never* on your LAN),
+   allowlists that origin, and prints the URL.
+3. First time only — allow it through the firewall (elevated PowerShell):
+   ```powershell
+   New-NetFirewallRule -DisplayName "ACS AI Teams (Tailscale)" -Direction Inbound `
+     -Protocol TCP -LocalPort 4173 -RemoteAddress 100.64.0.0/10 -Action Allow
+   ```
+   (`100.64.0.0/10` is Tailscale's address range, so only tailnet devices can connect.)
+4. On the phone, open the printed URL, e.g. `http://<your-tailscale-ip>:4173`.
+
+Manual equivalent (any platform): set `HOST` (bind address) and `ALLOWED_ORIGINS`
+(comma-separated) env vars, e.g. `HOST=0.0.0.0 ALLOWED_ORIGINS=http://<ip>:4173 npm start`.
+
+Note: buttons that act on the OS — **Browse…**, **View Team Directory**, **Open
+Claude Desktop**, **Detach to OS window** — happen on the **host PC**, not the phone.
+Anyone on your tailnet who opens the page gets terminal access, so only share the
+tailnet with people you trust.
+
 ## Notes
 
-- The server only listens on `127.0.0.1`, so it is not reachable from other
-  machines. It performs local file operations by design — don't expose it.
+- By default the server only listens on `127.0.0.1`, so it is not reachable from
+  other machines. It performs local file operations by design — only expose it
+  over Tailscale (see above), never an open network.
 - The embedded terminal gives whoever loads the page an interactive `claude`
-  shell, so the WebSocket only accepts connections from the app's own page
-  (Origin-checked) to block cross-site hijacking. Keep the port local.
+  shell, so the WebSocket only accepts connections from allowed origins
+  (localhost, plus any in `ALLOWED_ORIGINS`) to block cross-site hijacking.
 - Team names are validated to a single folder segment (no `..`, slashes, or
   illegal characters) to prevent escaping the location directory.
 - A tab's **×** ends that `claude` session; **–** / `Esc` just hides the window

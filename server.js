@@ -29,7 +29,9 @@ const { WebSocketServer } = require("ws");
 
 const app = express();
 const server = http.createServer(app);
-const HOST = "127.0.0.1";
+// Bind address. Defaults to localhost-only. Set HOST (e.g. to your Tailscale IP,
+// or 0.0.0.0) to allow access from other devices — see start-tailscale.cmd.
+const HOST = process.env.HOST || "127.0.0.1";
 const PORT = process.env.PORT || 4173;
 const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
@@ -910,7 +912,13 @@ app.get("/api/session-resumes", (req, res) => {
 
 // --- WebSocket: attach to a terminal session --------------------------------
 
-const ALLOWED_ORIGINS = [`http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`];
+// Origins allowed to open the terminal WebSocket. Localhost is always allowed;
+// add more (e.g. your Tailscale URL) via the ALLOWED_ORIGINS env var (comma-separated).
+const EXTRA_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const ALLOWED_ORIGINS = [`http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`, ...EXTRA_ORIGINS];
 
 if (PTY_AVAILABLE) {
   const wss = new WebSocketServer({ server, path: "/terminal" });
@@ -1001,6 +1009,9 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 server.listen(PORT, HOST, () => {
-  console.log(`\n  ACS AI Teams running at  http://${HOST}:${PORT}`);
+  const shown = HOST === "0.0.0.0" ? "127.0.0.1" : HOST;
+  console.log(`\n  ACS AI Teams running at  http://${shown}:${PORT}`);
+  console.log(`  Bound to: ${HOST}${HOST === "127.0.0.1" ? " (localhost only)" : " (network access enabled)"}`);
+  if (EXTRA_ORIGINS.length) console.log(`  Extra allowed origins: ${EXTRA_ORIGINS.join(", ")}`);
   console.log(`  Embedded terminal: ${PTY_AVAILABLE ? "enabled" : "disabled (external windows)"}\n`);
 });

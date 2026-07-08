@@ -605,5 +605,44 @@ option, optgroup { background: #0f1b2e; color: var(--white); }
   .panel { padding: 26px 22px 28px; }
   .field-row,
   .open-terminals,
-  .slash-commands { grid-template-columns: 1fr; gap: 8px; }
+  .slash-commands,
+  .resume-sessions { grid-template-columns: 1fr; gap: 8px; }
+}
+
+/* Phones (e.g. iPhone over Tailscale) */
+@media (max-width: 600px) {
+  body {
+    padding: 10px;
+    background-attachment: scroll; /* iOS Safari handles fixed backgrounds poorly */
+  }
+  .panel { padding: 18px 14px 22px; border-radius: 14px; }
+  .logo { width: 170px; }
+  .app-title { font-size: 30px; letter-spacing: 0.1em; }
+  .field-row { gap: 6px; }
+  .field-row label { margin-bottom: 2px; }
+  .actions-grid { gap: 10px; }
+  .btn-secondary { flex: 1 1 100%; } /* one action button per row */
+  .prompt-header { flex-wrap: wrap; gap: 10px; }
+  .prompt-header-left,
+  .prompt-header-right { flex-wrap: wrap; width: 100%; }
+  .prompt-category-label { font-size: 14px; }
+  #promptCategorySelect,
+  #promptSelect { flex: 1 1 100%; }
+  /* Terminal + members overlays go full-screen on a phone */
+  .terminal-overlay,
+  .members-overlay { padding: 0; }
+  .terminal-window {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    border: none;
+  }
+  .members-window {
+    width: 100vw;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: none;
+  }
+  .member-card { width: 200px; }
+  .member-photo { width: 200px; height: 267px; }
 }
