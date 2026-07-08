@@ -132,17 +132,105 @@ function activateTab(id) {
   if (t) {
     fitTab(id);
     t.term.focus();
+    // Viewing a tab clears its alert (green/orange/red) and its "did work" flag.
+    t.wasBusy = false;
+    setTabState(t, "none");
   }
   const sel = $("openTerminalsSelect");
   if (sel && tabs.has(id)) sel.value = id;
 }
 
+// --- tab status colouring --------------------------------------------------
+// Green = just completed a task; Orange = waiting for your input; Red = stalled;
+// (a subtle pulse = working). Only background tabs are coloured; opening a tab
+// clears it. Detection reads each terminal's on-screen text + output timing.
+const STATE_TITLES = {
+  working: "Working…",
+  green: "Completed a task",
+  orange: "Waiting for your input",
+  red: "Stalled (no output while working)",
+  none: "",
+};
+const TAB_STATES = ["working", "green", "orange", "red"];
+const BUSY_IDLE_MS = 1800; // output within this window = actively working
+const STALL_MS = 60000; // busy indicator on screen but frozen this long = stalled
+
+function setTabState(t, state) {
+  if (!t || t.state === state) return;
+  t.state = state;
+  for (const s of TAB_STATES) t.tabEl.classList.toggle(`state-${s}`, s === state);
+  t.dotEl.title = STATE_TITLES[state] || "";
+}
+
+// Read the last ~40 lines of a terminal's visible buffer as lowercased text.
+function readTerminalScreen(term) {
+  try {
+    const buf = term.buffer.active;
+    const start = Math.max(0, buf.length - 40);
+    let out = "";
+    for (let i = start; i < buf.length; i++) {
+      const line = buf.getLine(i);
+      if (line) out += line.translateToString(true) + "\n";
+    }
+    return out.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+// Claude's busy counter, e.g. "(9s … 321 tokens)" / "brewing 10s … 37 tokens".
+const BUSY_RE = /\(\d+s\b|\d+\s+tokens|esc to interrupt/;
+// A prompt awaiting the user: permission/menu dialogs, trust prompt, y/n.
+const PROMPT_RE = /do you want to proceed|❯|esc to cancel|enter to confirm|trust this folder|\b1\.\s*yes\b|\(y\/n\)|press enter to/;
+
+function evaluateTabStates() {
+  const now = Date.now();
+  const overlayHidden = $("terminalOverlay").hidden;
+  let alert = null; // highest-priority attention state across tabs (for the pill)
+  for (const [id, t] of tabs) {
+    if (t.ended) {
+      setTabState(t, "none");
+      continue;
+    }
+    // The tab you're actively viewing stays uncoloured — unless the whole
+    // terminal window is hidden, in which case colour it too.
+    if (id === activeTabId && !overlayHidden) continue;
+
+    const idleMs = now - (t.lastDataTs || 0);
+    const working = idleMs < BUSY_IDLE_MS;
+    if (working) t.wasBusy = true;
+    const screen = readTerminalScreen(t.term);
+    const busyOnScreen = BUSY_RE.test(screen);
+    const promptOnScreen = PROMPT_RE.test(screen);
+
+    let state;
+    if (promptOnScreen) state = "orange"; // blocked on a question
+    else if (working) state = "working";
+    else if (busyOnScreen && idleMs > STALL_MS) state = "red"; // spinner frozen
+    else if (busyOnScreen) state = "working"; // brief pause, still working
+    else if (t.wasBusy) state = "green"; // finished and idle at the prompt
+    else state = "none";
+    setTabState(t, state);
+
+    if (state === "red") alert = "red";
+    else if (state === "orange" && alert !== "red") alert = "orange";
+    else if (state === "green" && !alert) alert = "green";
+  }
+  // Reflect attention on the floating "Terminals (N)" pill when the window is hidden.
+  const pill = $("terminalRestore");
+  for (const s of TAB_STATES) pill.classList.remove(`state-${s}`);
+  if (overlayHidden && alert) pill.classList.add(`state-${alert}`);
+}
+setInterval(evaluateTabStates, 800);
+
 // Build the tab button + pane, spin up xterm, and attach the WebSocket.
-function createTab(id, name, location) {
+function createTab(id, name, location, sessionName) {
   // Tab button
   const tabEl = document.createElement("div");
   tabEl.className = "term-tab";
   tabEl.dataset.id = id;
+  const dotEl = document.createElement("span");
+  dotEl.className = "term-tab-dot";
   const nameEl = document.createElement("span");
   nameEl.className = "term-tab-name";
   // If this team already has terminals open, number the new one so tabs are
@@ -158,7 +246,7 @@ function createTab(id, name, location) {
   closeEl.className = "term-tab-btn term-tab-close";
   closeEl.innerHTML = "&times;";
   closeEl.title = "Close this terminal";
-  tabEl.append(nameEl, detachEl, closeEl);
+  tabEl.append(dotEl, nameEl, detachEl, closeEl);
   $("terminalTabs").appendChild(tabEl);
 
   tabEl.addEventListener("click", (e) => {
@@ -185,7 +273,11 @@ function createTab(id, name, location) {
   term.loadAddon(fit);
   term.open(paneEl);
 
-  const entry = { id, name, label, location, term, fit, ws: null, tabEl, paneEl, ended: false };
+  const entry = {
+    id, name, label, location, sessionName: sessionName || "",
+    term, fit, ws: null, tabEl, paneEl, dotEl,
+    ended: false, lastDataTs: Date.now(), wasBusy: false, state: "none",
+  };
   tabs.set(id, entry);
   updateOpenTerminalsDropdown();
 
@@ -196,7 +288,10 @@ function createTab(id, name, location) {
   const ws = new WebSocket(wsUrl(id));
   entry.ws = ws;
   ws.onopen = () => ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-  ws.onmessage = (ev) => term.write(ev.data);
+  ws.onmessage = (ev) => {
+    entry.lastDataTs = Date.now(); // for the tab status (busy/idle) detection
+    term.write(ev.data);
+  };
   ws.onclose = () => {
     // Distinguish a user-initiated close (tab already removed) from the pty
     // ending on its own.
@@ -271,7 +366,7 @@ async function openTeamTerminal(location, name, sessionName, resume) {
     body: JSON.stringify({ location, name, sessionName, resume }),
   });
   showOverlay();
-  createTab(data.id, data.name, data.location);
+  createTab(data.id, data.name, data.location, sessionName);
   toast(data.created ? "Team created. Starting Claude…" : `Opened a terminal for "${data.name}".`);
 }
 
@@ -282,7 +377,7 @@ async function restoreSessions() {
     const { sessions } = await api("/api/terminal/sessions");
     if (!sessions.length) return;
     for (const s of sessions) {
-      if (!tabs.has(s.id)) createTab(s.id, s.name, s.location);
+      if (!tabs.has(s.id)) createTab(s.id, s.name, s.location, s.sessionName);
     }
     $("terminalOverlay").hidden = true; // don't steal focus on load; offer the pill
     updateRestorePill();
@@ -441,6 +536,19 @@ $("createBtn").addEventListener("click", async () => {
   if (!sessionName) {
     $("sessionName").focus();
     return toast("Please enter a Session Name.", true);
+  }
+
+  // If a terminal for this exact Team + Session Name already exists, just
+  // switch to it instead of opening another.
+  if (ptyAvailable) {
+    for (const [id, t] of tabs) {
+      if (!t.ended && t.name === name && t.sessionName === sessionName) {
+        showOverlay();
+        activateTab(id);
+        toast(`Switched to existing "${sessionName}".`);
+        return;
+      }
+    }
   }
 
   try {
@@ -647,6 +755,13 @@ async function loadPromptList() {
 $("promptCategorySelect").addEventListener("change", () => {
   $("promptSelect").value = "";
   loadPromptList();
+});
+
+// The little "×" in the prompt box clears the text.
+$("clearPromptBtn").addEventListener("click", () => {
+  $("prompt").value = "";
+  $("promptSelect").value = ""; // reset the "load a saved prompt" selector
+  $("prompt").focus();
 });
 
 // Save the current text box as a prompt template in the SELECTED category.

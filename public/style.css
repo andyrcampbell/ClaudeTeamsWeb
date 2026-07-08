@@ -307,6 +307,33 @@ option, optgroup { background: #0f1b2e; color: var(--white); }
 #promptSelect { flex: 0 1 230px; }
 .prompt-select { min-width: 0; }
 
+.prompt-wrap { position: relative; }
+.prompt-clear {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--field-border);
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.prompt-clear:hover {
+  opacity: 1;
+  background: rgba(225, 29, 38, 0.18);
+  border-color: rgba(225, 29, 38, 0.55);
+  color: var(--white);
+}
+
 #prompt {
   height: 190px;
   width: 100%;
@@ -314,6 +341,7 @@ option, optgroup { background: #0f1b2e; color: var(--white); }
   font-size: 15px;
   line-height: 1.5;
   padding: 14px 16px;
+  display: block;
 }
 
 .prompt-actions {
@@ -441,6 +469,28 @@ option, optgroup { background: #0f1b2e; color: var(--white); }
 }
 .term-tab.ended .term-tab-name { color: #8a929e; text-decoration: line-through; }
 .term-tab-name { overflow: hidden; text-overflow: ellipsis; }
+
+/* Per-tab status dot: green = completed, orange = waiting, red = stalled,
+   pulsing = working. Only shown on background tabs (cleared when viewed). */
+.term-tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: transparent;
+}
+.term-tab.state-working .term-tab-dot { background: #4a9eff; animation: tab-pulse 1.1s ease-in-out infinite; }
+.term-tab.state-green .term-tab-dot { background: #33d17a; box-shadow: 0 0 6px rgba(51, 209, 122, 0.8); }
+.term-tab.state-orange .term-tab-dot { background: #ff9f2e; box-shadow: 0 0 6px rgba(255, 159, 46, 0.8); }
+.term-tab.state-red .term-tab-dot { background: #ff5c5c; box-shadow: 0 0 6px rgba(255, 92, 92, 0.9); animation: tab-pulse 0.9s ease-in-out infinite; }
+/* Subtle tab tint so status is visible even without eyeing the dot */
+.term-tab.state-green:not(.active) { background: rgba(51, 209, 122, 0.16); }
+.term-tab.state-orange:not(.active) { background: rgba(255, 159, 46, 0.18); }
+.term-tab.state-red:not(.active) { background: rgba(255, 92, 92, 0.2); }
+@keyframes tab-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 .term-tab-btn {
   width: 18px;
   height: 18px;
@@ -502,6 +552,9 @@ option, optgroup { background: #0f1b2e; color: var(--white); }
 }
 .terminal-restore:hover { background: rgba(33, 33, 58, 0.98); }
 .terminal-restore[hidden] { display: none; }
+.terminal-restore.state-green { border-color: #33d17a; box-shadow: 0 0 14px rgba(51, 209, 122, 0.5); }
+.terminal-restore.state-orange { border-color: #ff9f2e; box-shadow: 0 0 14px rgba(255, 159, 46, 0.5); }
+.terminal-restore.state-red { border-color: #ff5c5c; box-shadow: 0 0 16px rgba(255, 92, 92, 0.6); }
 
 /* ---- Team Members carousel ---- */
 .members-overlay {

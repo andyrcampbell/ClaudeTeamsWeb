@@ -173,7 +173,7 @@ function writeRegistry() {
   try {
     const data = [...sessions.values()]
       .filter((s) => s.alive)
-      .map((s) => ({ id: s.id, name: s.name, location: s.location }));
+      .map((s) => ({ id: s.id, name: s.name, location: s.location, sessionName: s.sessionName || "" }));
     fs.writeFileSync(REGISTRY_FILE, JSON.stringify(data, null, 2));
   } catch (err) {
     console.error("writeRegistry error:", err.message);
@@ -355,6 +355,8 @@ function createSession(location, name, sessionName, resumeId) {
     live: false,
     dirty: false,
     needsRestoreBanner: false,
+    // The session name (used to /rename and to identify a team+session tab).
+    sessionName: typeof sessionName === "string" ? sessionName.trim() : "",
     // Resume a specific past session (or null to start fresh).
     resumeId: resume,
     // If a session name was given (and not resuming), run `/rename <name>` once ready.
@@ -419,6 +421,7 @@ function loadPersistedSessions() {
       name: e.name,
       location: e.location,
       teamDir,
+      sessionName: typeof e.sessionName === "string" ? e.sessionName : "",
       term: null,
       buffer,
       clients: new Set(),
@@ -596,7 +599,7 @@ app.get("/api/terminal/sessions", (req, res) => {
   res.json({
     sessions: [...sessions.values()]
       .filter((s) => s.alive)
-      .map((s) => ({ id: s.id, name: s.name, location: s.location, live: s.live })),
+      .map((s) => ({ id: s.id, name: s.name, location: s.location, sessionName: s.sessionName || "", live: s.live })),
   });
 });
 

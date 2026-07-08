@@ -69,7 +69,10 @@
           </select>
         </div>
       </div>
-      <textarea id="prompt" spellcheck="false" placeholder="Type a prompt here, or load one from the dropdown above…"></textarea>
+      <div class="prompt-wrap">
+        <textarea id="prompt" spellcheck="false" placeholder="Type a prompt here, or load one from the dropdown above…"></textarea>
+        <button id="clearPromptBtn" class="prompt-clear" title="Clear prompt" aria-label="Clear prompt">&times;</button>
+      </div>
       <div class="prompt-actions">
         <button id="sendTextBtn" class="btn btn-secondary">Send Text to Selected Terminal</button>
         <button id="savePromptBtn" class="btn btn-secondary">Save Prompt</button>
