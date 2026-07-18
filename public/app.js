@@ -233,11 +233,13 @@ function createTab(id, name, location, sessionName) {
   dotEl.className = "term-tab-dot";
   const nameEl = document.createElement("span");
   nameEl.className = "term-tab-name";
-  // If this team already has terminals open, number the new one so tabs are
-  // distinguishable (e.g. "ACS-AI", "ACS-AI (2)", "ACS-AI (3)").
-  const sameTeam = [...tabs.values()].filter((t) => t.name === name).length;
-  const label = sameTeam === 0 ? name : `${name} (${sameTeam + 1})`;
+  // Label the tab with the session name, falling back to the team name when
+  // there isn't one. Duplicates get numbered so tabs stay distinguishable.
+  const base = (sessionName || "").trim() || name;
+  const sameBase = [...tabs.values()].filter((t) => t.baseLabel === base).length;
+  const label = sameBase === 0 ? base : `${base} (${sameBase + 1})`;
   nameEl.textContent = label;
+  nameEl.title = `${name}${(sessionName || "").trim() ? ` — ${sessionName.trim()}` : ""}`;
   const detachEl = document.createElement("button");
   detachEl.className = "term-tab-btn term-tab-detach";
   detachEl.innerHTML = "&#8599;"; // ↗ pop out
@@ -274,7 +276,7 @@ function createTab(id, name, location, sessionName) {
   term.open(paneEl);
 
   const entry = {
-    id, name, label, location, sessionName: sessionName || "",
+    id, name, label, baseLabel: base, location, sessionName: sessionName || "",
     term, fit, ws: null, tabEl, paneEl, dotEl,
     ended: false, lastDataTs: Date.now(), wasBusy: false, state: "none",
   };
@@ -433,6 +435,7 @@ async function loadSessionResumes() {
         ? ""
         : ` · ${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
       o.textContent = (s.title || "(untitled)") + when;
+      o.dataset.title = s.title || ""; // raw title, used to label the tab
       sel.appendChild(o);
     }
   } catch {
@@ -443,14 +446,18 @@ async function loadSessionResumes() {
 // Selecting a session opens a terminal that resumes it (claude --resume <id>).
 $("resumeSelect").addEventListener("change", async (e) => {
   const id = e.target.value;
-  const label = e.target.selectedOptions[0]?.textContent || "session";
+  const opt = e.target.selectedOptions[0];
+  const label = opt?.textContent || "session";
+  const title = opt?.dataset.title || ""; // used as the tab label
   e.target.selectedIndex = 0; // reset so the same session can be picked again
   if (!id) return;
   const location = locationInput.value.trim();
   const name = teamNameInput.value.trim();
   if (!name) return toast("Select a team first.", true);
   try {
-    await openTeamTerminal(location, name, "", id);
+    // Pass the session's title so the tab is labelled with it. The server
+    // skips the auto-/rename when resuming, so this is display-only.
+    await openTeamTerminal(location, name, title, id);
     toast(`Resuming "${label}"…`);
   } catch (err) {
     toast(err.message, true);
@@ -672,6 +679,10 @@ function renderMembers(location, name, members) {
     const img = document.createElement("img");
     img.className = "member-photo";
     img.alt = m.name;
+    img.loading = "lazy"; // don't fetch off-screen cards all at once
+    img.decoding = "async";
+    img.width = 225;
+    img.height = 300;
     if (m.image) {
       img.src =
         `/api/team-member-image?location=${encodeURIComponent(location)}` +

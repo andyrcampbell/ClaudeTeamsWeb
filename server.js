@@ -822,6 +822,60 @@ function parseMemberProfile(mdText, fallbackName) {
 
 const IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
 
+// --- member photo thumbnails ------------------------------------------------
+// Gallery originals are large (1.5-7 MB, 1536-2048px) and live on a network
+// share, so serving 20+ of them at once stalls the carousel. We cache a small
+// 225x300 crop per image in "<team>/Active Team Thumbs" and serve that instead.
+const THUMB_DIR_NAME = "Active Team Thumbs";
+const THUMB_W = 225;
+const THUMB_H = 300;
+
+let sharpLib = null;
+let jimpLib = null;
+try {
+  sharpLib = require("sharp");
+} catch {
+  try {
+    jimpLib = require("jimp");
+  } catch {
+    console.warn("No image resizer (sharp/jimp) available - serving full-size member photos.");
+  }
+}
+
+// Return a cached 225x300 thumbnail path for a gallery image, building it if
+// missing or stale. Returns null if it can't be made (caller serves the original).
+async function ensureThumbnail(srcPath, teamDir, fileName) {
+  if (!sharpLib && !jimpLib) return null;
+  const thumbPath = path.join(teamDir, THUMB_DIR_NAME, fileName);
+  try {
+    const srcStat = fs.statSync(srcPath);
+    let thumbStat = null;
+    try {
+      thumbStat = fs.statSync(thumbPath);
+    } catch {
+      /* not built yet */
+    }
+    // Reuse unless the original changed since the thumbnail was made.
+    if (thumbStat && thumbStat.mtimeMs >= srcStat.mtimeMs) return thumbPath;
+
+    fs.mkdirSync(path.dirname(thumbPath), { recursive: true });
+    if (sharpLib) {
+      await sharpLib(srcPath)
+        .resize(THUMB_W, THUMB_H, { fit: "cover", position: "centre" })
+        .toFile(thumbPath);
+    } else {
+      const img = await jimpLib.read(srcPath);
+      const covered = typeof img.cover === "function" ? img.cover(THUMB_W, THUMB_H) : img;
+      if (typeof covered.writeAsync === "function") await covered.writeAsync(thumbPath);
+      else await covered.write(thumbPath);
+    }
+    return thumbPath;
+  } catch (err) {
+    console.error("ensureThumbnail error:", err.message);
+    return null; // fall back to the original so nothing hard-fails
+  }
+}
+
 // List a team's members from its /Team/*.md profiles, matched to /Team Gallery images.
 app.get("/api/team-members", (req, res) => {
   const location = req.query.location || "";
@@ -868,18 +922,27 @@ app.get("/api/team-members", (req, res) => {
   }
 });
 
-// Serve a team member's gallery image.
-app.get("/api/team-member-image", (req, res) => {
+// Serve a team member's photo — a cached 225x300 thumbnail where possible,
+// falling back to the full-size gallery original.
+app.get("/api/team-member-image", async (req, res) => {
   const location = req.query.location || "";
   const name = req.query.name || "";
   const file = req.query.file || "";
   if (!location || !isValidTeamName(name)) return res.status(400).end();
   if (!file || file.includes("/") || file.includes("\\") || file.includes("..")) return res.status(400).end();
-  const galleryDir = path.join(location, name.trim(), "Team Gallery");
+  const teamDir = path.join(location, name.trim());
+  const galleryDir = path.join(teamDir, "Team Gallery");
   const filePath = path.join(galleryDir, file);
   if (!path.resolve(filePath).startsWith(path.resolve(galleryDir) + path.sep)) return res.status(400).end();
   if (!fs.existsSync(filePath)) return res.status(404).end();
-  res.sendFile(path.resolve(filePath));
+  try {
+    const thumb = await ensureThumbnail(filePath, teamDir, file);
+    res.sendFile(path.resolve(thumb || filePath), { maxAge: "1d" }, (err) => {
+      if (err && !res.headersSent) res.status(404).end();
+    });
+  } catch (err) {
+    if (!res.headersSent) res.status(500).end();
+  }
 });
 
 // --- resumable claude sessions ---------------------------------------------
