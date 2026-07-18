@@ -829,6 +829,10 @@ const IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
 const THUMB_DIR_NAME = "Active Team Thumbs";
 const THUMB_W = 225;
 const THUMB_H = 300;
+// WebP: a lossless PNG crop of a photo is still ~160 KB, which is painful over
+// a slow share. WebP keeps transparency and is ~10x smaller.
+const THUMB_EXT = ".webp";
+const thumbNameFor = (file) => path.basename(file, path.extname(file)) + THUMB_EXT;
 
 let sharpLib = null;
 let jimpLib = null;
@@ -842,66 +846,165 @@ try {
   }
 }
 
+// In-flight thumbnail builds, so a background warm pass and an on-demand
+// request never try to write the same file at once.
+const thumbInFlight = new Map();
+
 // Return a cached 225x300 thumbnail path for a gallery image, building it if
 // missing or stale. Returns null if it can't be made (caller serves the original).
 async function ensureThumbnail(srcPath, teamDir, fileName) {
   if (!sharpLib && !jimpLib) return null;
-  const thumbPath = path.join(teamDir, THUMB_DIR_NAME, fileName);
+  const thumbPath = path.join(teamDir, THUMB_DIR_NAME, thumbNameFor(fileName));
   try {
-    const srcStat = fs.statSync(srcPath);
+    // Async on purpose: sync fs calls against a slow network share block the
+    // whole event loop and freeze the server.
+    const srcStat = await fs.promises.stat(srcPath);
     let thumbStat = null;
     try {
-      thumbStat = fs.statSync(thumbPath);
+      thumbStat = await fs.promises.stat(thumbPath);
     } catch {
       /* not built yet */
     }
     // Reuse unless the original changed since the thumbnail was made.
     if (thumbStat && thumbStat.mtimeMs >= srcStat.mtimeMs) return thumbPath;
-
-    fs.mkdirSync(path.dirname(thumbPath), { recursive: true });
-    if (sharpLib) {
-      await sharpLib(srcPath)
-        .resize(THUMB_W, THUMB_H, { fit: "cover", position: "centre" })
-        .toFile(thumbPath);
-    } else {
-      const img = await jimpLib.read(srcPath);
-      const covered = typeof img.cover === "function" ? img.cover(THUMB_W, THUMB_H) : img;
-      if (typeof covered.writeAsync === "function") await covered.writeAsync(thumbPath);
-      else await covered.write(thumbPath);
-    }
-    return thumbPath;
   } catch (err) {
-    console.error("ensureThumbnail error:", err.message);
+    console.error("ensureThumbnail stat error:", err.message);
     return null; // fall back to the original so nothing hard-fails
+  }
+
+  if (thumbInFlight.has(thumbPath)) return thumbInFlight.get(thumbPath);
+  const job = (async () => {
+    // Read via Node's fs (throws catchable JS errors) and hand the resizer an
+    // in-memory buffer, so the native library never touches the network share
+    // directly — a flaky read there can abort the whole process.
+    const srcBuf = await fs.promises.readFile(srcPath);
+    let outBuf;
+    if (sharpLib) {
+      outBuf = await sharpLib(srcBuf)
+        .resize(THUMB_W, THUMB_H, { fit: "cover", position: "centre" })
+        .webp({ quality: 82 })
+        .toBuffer();
+    } else {
+      const img = await jimpLib.read(srcBuf);
+      const covered = typeof img.cover === "function" ? img.cover(THUMB_W, THUMB_H) : img;
+      const mime = typeof covered.getMIME === "function" ? covered.getMIME() : "image/png";
+      outBuf = await covered.getBufferAsync(mime);
+    }
+    await fs.promises.mkdir(path.dirname(thumbPath), { recursive: true });
+    await fs.promises.writeFile(thumbPath, outBuf);
+    return thumbPath;
+  })()
+    .catch((err) => {
+      console.error("ensureThumbnail error:", err.message);
+      return null;
+    })
+    .finally(() => thumbInFlight.delete(thumbPath));
+  thumbInFlight.set(thumbPath, job);
+  return job;
+}
+
+// Build thumbnails for every member photo in the background. Lazy-loaded cards
+// off-screen are never requested by the browser, so without this only the
+// visible ones would ever get a thumbnail.
+const warmingTeams = new Set();
+function warmThumbnails(members, teamDir, galleryDir) {
+  if (!sharpLib && !jimpLib) return;
+  if (warmingTeams.has(teamDir)) return; // one warm pass per team at a time
+  warmingTeams.add(teamDir);
+  (async () => {
+    // One directory listing tells us which thumbs already exist — far cheaper
+    // than stat-ing every original twice on a slow share. (Staleness is still
+    // handled on demand by ensureThumbnail when the image is actually served.)
+    let existing = new Set();
+    try {
+      existing = new Set(await fs.promises.readdir(path.join(teamDir, THUMB_DIR_NAME)));
+    } catch {
+      /* no thumbs dir yet — build them all */
+    }
+    const queue = members.filter((m) => m.image && !existing.has(thumbNameFor(m.image))).map((m) => m.image);
+    if (queue.length) console.log(`warmThumbnails: building ${queue.length} thumbnail(s) for ${path.basename(teamDir)}`);
+    // A few at a time: reads can be very slow on a network share, and doing
+    // them strictly one-by-one makes a large gallery take far too long.
+    const WARM_CONCURRENCY = 3;
+    const worker = async () => {
+      for (;;) {
+        const file = queue.shift();
+        if (!file) return;
+        try {
+          await ensureThumbnail(path.join(galleryDir, file), teamDir, file);
+        } catch {
+          /* keep going with the rest */
+        }
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: WARM_CONCURRENCY }, worker));
+      // Second pass: for images that already had a thumbnail, verify it isn't
+      // stale. This does the (slow) mtime comparison in the background so it
+      // never holds up a request.
+      for (const m of members) {
+        if (!m.image || !existing.has(thumbNameFor(m.image))) continue;
+        try {
+          await ensureThumbnail(path.join(galleryDir, m.image), teamDir, m.image);
+        } catch {
+          /* keep going */
+        }
+      }
+    } finally {
+      warmingTeams.delete(teamDir);
+    }
+  })().catch((err) => {
+    // Never let a background thumbnail job take the server down.
+    warmingTeams.delete(teamDir);
+    console.error("warmThumbnails error:", err && err.message);
+  });
+}
+
+// Async existence check — never use existsSync on the share, it blocks the loop.
+async function pathExists(p) {
+  try {
+    await fs.promises.access(p);
+    return true;
+  } catch {
+    return false;
   }
 }
 
 // List a team's members from its /Team/*.md profiles, matched to /Team Gallery images.
-app.get("/api/team-members", (req, res) => {
+// All share I/O here is async so a slow share can't freeze the whole server.
+app.get("/api/team-members", async (req, res) => {
   const location = req.query.location || "";
   const name = req.query.name || "";
   if (!location || !isValidTeamName(name)) {
     return res.status(400).json({ error: "Invalid location or team name." });
   }
   const teamDir = path.join(location, name.trim());
-  // Member profiles live in "Team" or "Team Register" — use whichever exists.
-  const candidates = [path.join(teamDir, "Team"), path.join(teamDir, "Team Register")];
-  const profilesDir = candidates.find((d) => fs.existsSync(d));
   const galleryDir = path.join(teamDir, "Team Gallery");
   try {
+    // Member profiles live in "Team" or "Team Register" — use whichever exists.
+    let profilesDir = null;
+    for (const d of [path.join(teamDir, "Team"), path.join(teamDir, "Team Register")]) {
+      if (await pathExists(d)) {
+        profilesDir = d;
+        break;
+      }
+    }
     if (!profilesDir) return res.json({ members: [] });
 
-    // Map lowercased image base name -> actual filename.
+    // Map lowercased image base name -> actual filename. A failure here just
+    // means no photos — it must not take the whole member list down.
     const gallery = {};
-    if (fs.existsSync(galleryDir)) {
-      for (const f of fs.readdirSync(galleryDir)) {
+    try {
+      for (const f of await fs.promises.readdir(galleryDir)) {
         const ext = path.extname(f).toLowerCase();
         if (IMAGE_EXTS.includes(ext)) gallery[path.basename(f, path.extname(f)).toLowerCase()] = f;
       }
+    } catch (err) {
+      console.error("team-members: could not read Team Gallery:", err.message);
     }
 
     const members = [];
-    for (const entry of fs.readdirSync(profilesDir, { withFileTypes: true })) {
+    for (const entry of await fs.promises.readdir(profilesDir, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
       const base = entry.name.slice(0, -3);
       const low = base.toLowerCase();
@@ -909,14 +1012,20 @@ app.get("/api/team-members", (req, res) => {
       if (low === "roster" || low === "hiring-log") continue;
       let parsed;
       try {
-        parsed = parseMemberProfile(fs.readFileSync(path.join(profilesDir, entry.name), "utf8"), base);
-      } catch {
-        continue;
+        parsed = parseMemberProfile(await fs.promises.readFile(path.join(profilesDir, entry.name), "utf8"), base);
+      } catch (err) {
+        // Never drop a member just because their profile couldn't be read —
+        // the share can be slow/flaky. Fall back to the file name.
+        console.error(`team-members: could not read ${entry.name}: ${err.message}`);
+        parsed = { name: base, role: "" };
       }
       members.push({ name: parsed.name, role: parsed.role, image: gallery[low] || null });
     }
     members.sort((a, b) => a.name.localeCompare(b.name));
     res.json({ members });
+    // Build any missing thumbnails in the background so off-screen cards
+    // (which lazy loading never requests) still get one.
+    warmThumbnails(members, teamDir, galleryDir);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -934,8 +1043,17 @@ app.get("/api/team-member-image", async (req, res) => {
   const galleryDir = path.join(teamDir, "Team Gallery");
   const filePath = path.join(galleryDir, file);
   if (!path.resolve(filePath).startsWith(path.resolve(galleryDir) + path.sep)) return res.status(400).end();
-  if (!fs.existsSync(filePath)) return res.status(404).end();
   try {
+    // Fast path: if the thumbnail is already cached, serve it without touching
+    // the original at all — stat-ing the original is the slow part on a network
+    // share. Staleness is picked up by the background warm pass instead.
+    const thumbPath = path.join(teamDir, THUMB_DIR_NAME, thumbNameFor(file));
+    if (await pathExists(thumbPath)) {
+      return res.sendFile(path.resolve(thumbPath), { maxAge: "1d" }, (err) => {
+        if (err && !res.headersSent) res.status(404).end();
+      });
+    }
+    if (!(await pathExists(filePath))) return res.status(404).end();
     const thumb = await ensureThumbnail(filePath, teamDir, file);
     res.sendFile(path.resolve(thumb || filePath), { maxAge: "1d" }, (err) => {
       if (err && !res.headersSent) res.status(404).end();
@@ -1092,6 +1210,15 @@ const flushTimer = setInterval(() => {
   for (const s of sessions.values()) flushScrollback(s);
 }, 3000);
 flushTimer.unref?.();
+
+// Keep the server alive (and noisy) rather than dying silently on a stray
+// error — e.g. a flaky network share throwing mid-read in a background job.
+process.on("unhandledRejection", (err) => {
+  console.error("Unhandled rejection:", (err && err.stack) || err);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", (err && err.stack) || err);
+});
 
 function shutdown() {
   for (const s of sessions.values()) flushScrollback(s);
