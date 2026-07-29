@@ -107,6 +107,25 @@ body::before {
   text-transform: uppercase;
   color: var(--muted-2);
 }
+.ui-switch {
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  text-decoration: none;
+}
+.ui-switch:hover { color: var(--accent-hi); }
+
+/* Terminal-bar title (used in the V2 accordion header) */
+.terminal-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--white);
+}
 
 .controls { display: flex; flex-direction: column; }
 
@@ -534,6 +553,102 @@ option, optgroup { background: #0f1b2e; color: var(--white); }
 }
 .term-pane.active { display: block; }
 .term-pane .xterm { height: 100%; }
+
+/* ---- V2 (/v2): vertical accordion of terminals ---- */
+/* Taller window so the expanded terminal has room; the stack scrolls when the
+   collapsed bars plus the open terminal exceed the height. */
+body[data-layout="stack"] .terminal-window {
+  height: 92vh;
+  max-height: 92vh;
+}
+.terminal-stack {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto; /* tabs scroll off-screen when there are too many */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+.stack-item {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #14141f;
+}
+.stack-item.active {
+  flex: 1 1 auto;
+  min-height: 600px; /* doubled: the open terminal is roughly twice as tall */
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.stack-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  background: #1b1b2a;
+  user-select: none;
+}
+.stack-header:hover { background: #23233a; }
+.stack-item.active .stack-header { background: #26263f; }
+.stack-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e7ebf2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stack-item.ended .stack-name { color: #8a929e; text-decoration: line-through; }
+
+/* Collapsed-item status tint + dot colours (mirrors the V1 tabs) */
+.stack-item.state-green:not(.active) .stack-header { background: rgba(51, 209, 122, 0.16); }
+.stack-item.state-orange:not(.active) .stack-header { background: rgba(255, 159, 46, 0.18); }
+.stack-item.state-red:not(.active) .stack-header { background: rgba(255, 92, 92, 0.2); }
+.stack-item.state-working .term-tab-dot { background: #4a9eff; animation: tab-pulse 1.1s ease-in-out infinite; }
+.stack-item.state-green .term-tab-dot { background: #33d17a; box-shadow: 0 0 6px rgba(51, 209, 122, 0.8); }
+.stack-item.state-orange .term-tab-dot { background: #ff9f2e; box-shadow: 0 0 6px rgba(255, 159, 46, 0.8); }
+.stack-item.state-red .term-tab-dot { background: #ff5c5c; box-shadow: 0 0 6px rgba(255, 92, 92, 0.9); animation: tab-pulse 0.9s ease-in-out infinite; }
+
+/* The pane (terminal) only shows when the item is expanded */
+.stack-pane { display: none; }
+.stack-item.active .stack-pane {
+  display: block;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #0c0c14;
+}
+.stack-term { position: absolute; inset: 0; padding: 8px 6px 6px 10px; }
+.stack-term .xterm { height: 100%; }
+/* The small "X" in the expanded terminal's top-right corner to collapse it */
+.stack-collapse {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  color: #cdd3dc;
+  background: rgba(20, 20, 32, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.stack-collapse:hover { background: rgba(225, 29, 38, 0.35); color: #fff; }
 
 .terminal-restore {
   position: fixed;

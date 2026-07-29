@@ -66,6 +66,8 @@ function loadSettings() {
 const PROMPTS_DIR = path.join(__dirname, "Prompts");
 
 app.use(express.json());
+// V2 UI (vertical accordion of terminals). Same app, alternative terminal layout.
+app.get(["/v2", "/v2/"], (req, res) => res.sendFile(path.join(__dirname, "public", "index-v2.html")));
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/vendor", express.static(path.join(__dirname, "node_modules/@xterm")));
 

@@ -52,6 +52,8 @@ async function refreshTeams() {
 
 const tabs = new Map(); // sessionId -> { id, name, term, fit, ws, tabEl, paneEl, ended }
 let activeTabId = null;
+// "tabs" = horizontal tab strip (V1); "stack" = vertical accordion (V2, /v2).
+const LAYOUT = document.body.dataset.layout === "stack" ? "stack" : "tabs";
 
 const TERM_OPTS = {
   cursorBlink: true,
@@ -140,6 +142,17 @@ function activateTab(id) {
   if (sel && tabs.has(id)) sel.value = id;
 }
 
+// Collapse the expanded stack item back to just its bar (V2 only). With nothing
+// expanded, activeTabId is null so all items become status-coloured again.
+function collapseTab(id) {
+  const t = tabs.get(id);
+  if (t) {
+    t.tabEl.classList.remove("active");
+    t.paneEl.classList.remove("active");
+  }
+  if (activeTabId === id) activeTabId = null;
+}
+
 // --- tab status colouring --------------------------------------------------
 // Green = just completed a task; Orange = waiting for your input; Red = stalled;
 // (a subtle pulse = working). Only background tabs are coloured; opening a tab
@@ -223,23 +236,20 @@ function evaluateTabStates() {
 }
 setInterval(evaluateTabStates, 800);
 
-// Build the tab button + pane, spin up xterm, and attach the WebSocket.
+// Build the tab (or stack row) + pane, spin up xterm, and attach the WebSocket.
 function createTab(id, name, location, sessionName) {
-  // Tab button
-  const tabEl = document.createElement("div");
-  tabEl.className = "term-tab";
-  tabEl.dataset.id = id;
-  const dotEl = document.createElement("span");
-  dotEl.className = "term-tab-dot";
-  const nameEl = document.createElement("span");
-  nameEl.className = "term-tab-name";
-  // Label the tab with the session name, falling back to the team name when
-  // there isn't one. Duplicates get numbered so tabs stay distinguishable.
+  // Label with the session name, falling back to the team name. Duplicates get
+  // numbered so tabs stay distinguishable.
   const base = (sessionName || "").trim() || name;
   const sameBase = [...tabs.values()].filter((t) => t.baseLabel === base).length;
   const label = sameBase === 0 ? base : `${base} (${sameBase + 1})`;
+  const titleAttr = `${name}${(sessionName || "").trim() ? ` — ${sessionName.trim()}` : ""}`;
+
+  const dotEl = document.createElement("span");
+  dotEl.className = "term-tab-dot";
+  const nameEl = document.createElement("span");
   nameEl.textContent = label;
-  nameEl.title = `${name}${(sessionName || "").trim() ? ` — ${sessionName.trim()}` : ""}`;
+  nameEl.title = titleAttr;
   const detachEl = document.createElement("button");
   detachEl.className = "term-tab-btn term-tab-detach";
   detachEl.innerHTML = "&#8599;"; // ↗ pop out
@@ -248,13 +258,63 @@ function createTab(id, name, location, sessionName) {
   closeEl.className = "term-tab-btn term-tab-close";
   closeEl.innerHTML = "&times;";
   closeEl.title = "Close this terminal";
-  tabEl.append(dotEl, nameEl, detachEl, closeEl);
-  $("terminalTabs").appendChild(tabEl);
 
-  tabEl.addEventListener("click", (e) => {
-    if (e.target === closeEl || e.target === detachEl) return;
-    activateTab(id);
-  });
+  let tabEl, paneEl, termMount;
+
+  if (LAYOUT === "stack") {
+    // V2: a vertical accordion item — a header bar that expands to the terminal.
+    nameEl.className = "stack-name";
+    tabEl = document.createElement("div");
+    tabEl.className = "stack-item";
+    tabEl.dataset.id = id;
+
+    const header = document.createElement("div");
+    header.className = "stack-header";
+    header.append(dotEl, nameEl, detachEl, closeEl);
+
+    paneEl = document.createElement("div");
+    paneEl.className = "stack-pane";
+    const collapseEl = document.createElement("button");
+    collapseEl.className = "stack-collapse";
+    collapseEl.innerHTML = "&times;"; // the small "X" to collapse back to the stack
+    collapseEl.title = "Collapse";
+    termMount = document.createElement("div");
+    termMount.className = "stack-term";
+    paneEl.append(collapseEl, termMount);
+
+    tabEl.append(header, paneEl);
+    $("terminalStack").appendChild(tabEl);
+
+    header.addEventListener("click", (e) => {
+      if (e.target === closeEl || e.target === detachEl) return;
+      if (activeTabId === id) collapseTab(id);
+      else activateTab(id);
+    });
+    collapseEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      collapseTab(id);
+    });
+  } else {
+    // V1: a button in the horizontal tab strip, with its pane in #terminalPanes.
+    nameEl.className = "term-tab-name";
+    tabEl = document.createElement("div");
+    tabEl.className = "term-tab";
+    tabEl.dataset.id = id;
+    tabEl.append(dotEl, nameEl, detachEl, closeEl);
+    $("terminalTabs").appendChild(tabEl);
+
+    tabEl.addEventListener("click", (e) => {
+      if (e.target === closeEl || e.target === detachEl) return;
+      activateTab(id);
+    });
+
+    paneEl = document.createElement("div");
+    paneEl.className = "term-pane";
+    paneEl.dataset.id = id;
+    $("terminalPanes").appendChild(paneEl);
+    termMount = paneEl;
+  }
+
   detachEl.addEventListener("click", (e) => {
     e.stopPropagation();
     detachTab(id);
@@ -264,16 +324,10 @@ function createTab(id, name, location, sessionName) {
     closeTab(id, true);
   });
 
-  // Pane + xterm
-  const paneEl = document.createElement("div");
-  paneEl.className = "term-pane";
-  paneEl.dataset.id = id;
-  $("terminalPanes").appendChild(paneEl);
-
   const term = new Terminal(TERM_OPTS);
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
-  term.open(paneEl);
+  term.open(termMount);
 
   const entry = {
     id, name, label, baseLabel: base, location, sessionName: sessionName || "",
