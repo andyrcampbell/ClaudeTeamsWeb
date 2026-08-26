@@ -37,14 +37,16 @@ const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
 const PTY_AVAILABLE = pty !== null;
 
-const DEFAULT_LOCATION = IS_WIN
-  ? "M:\\MyStuff\\MyAITeams\\"
-  : path.join(os.homedir(), "MyAITeams");
+const DEFAULT_LOCATION =
+  process.env.ACS_DEFAULT_LOCATION ||
+  (IS_WIN ? "M:\\MyStuff\\MyAITeams\\" : path.join(os.homedir(), "MyAITeams"));
 
 const TEAM_SUBFOLDERS = ["Deliverables", "Team Register", "Team Task Data"];
 
 // Persistence: where we remember open sessions + their scrollback.
-const DATA_DIR = path.join(__dirname, "data");
+// Packaged builds override this (ACS_DATA_DIR) to a writable per-user folder,
+// since __dirname may be inside a read-only install directory.
+const DATA_DIR = process.env.ACS_DATA_DIR || path.join(__dirname, "data");
 const SCROLLBACK_DIR = path.join(DATA_DIR, "scrollback");
 const REGISTRY_FILE = path.join(DATA_DIR, "sessions.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
@@ -164,7 +166,12 @@ function findClaudeDesktopWin() {
 // --- persistence ------------------------------------------------------------
 
 function ensureDataDir() {
-  fs.mkdirSync(SCROLLBACK_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(SCROLLBACK_DIR, { recursive: true });
+  } catch (err) {
+    err.message = `${err.message} [DATA_DIR=${DATA_DIR} SCROLLBACK_DIR=${SCROLLBACK_DIR} __dirname=${__dirname} ACS_DATA_DIR env=${JSON.stringify(process.env.ACS_DATA_DIR)}]`;
+    throw err;
+  }
 }
 
 function scrollbackPath(id) {

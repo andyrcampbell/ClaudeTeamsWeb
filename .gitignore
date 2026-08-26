@@ -1,6 +1,9 @@
 # Dependencies — regenerate with `npm install` (node-pty is a native, per-platform build)
 node_modules/
 
+# electron-builder installer output — regenerate with npm run dist:win / dist:mac
+dist/
+
 # Runtime state — persisted sessions, scrollback, and the saved location setting
 data/
 

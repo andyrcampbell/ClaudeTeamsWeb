@@ -1,0 +1,59 @@
+name: Build installers
+
+# Produces an unsigned Windows .exe (NSIS) and macOS .dmg (x64 + arm64) via
+# electron-builder. Runs on pushes to `release` and on version tags; version
+# tags additionally attach the installers to a draft GitHub Release for
+# review before publishing. This is a build/artifact pipeline for the
+# teammate-testing milestone — no code signing or notarization yet.
+
+on:
+  push:
+    branches: [release]
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx electron-rebuild
+      - run: npx electron-builder --win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*.exe
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx electron-rebuild
+      - run: npx electron-builder --mac --x64 --arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-installer
+          path: dist/*.dmg
+
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            artifacts/windows-installer/*.exe
+            artifacts/mac-installer/*.dmg

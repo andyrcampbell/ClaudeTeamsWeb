@@ -69,6 +69,38 @@ Notes:
   under the **Location**, not inside this repo — copy that folder separately if
   you want your existing teams.
 
+## Packaged app (installer)
+
+For teammates who shouldn't need to install Node.js or git, the app is also
+packaged as a proper installer via [Electron](https://www.electronjs.org/) +
+[electron-builder](https://www.electron.build/) — a Windows `.exe` (NSIS) and
+a macOS `.dmg`. It wraps this same `server.js` + `public/` unchanged: Electron
+spawns the server using its own bundled Node, then shows the existing web UI
+in a native window. `claude` still has to be on the target machine's PATH —
+the installer doesn't bundle it.
+
+Build locally:
+
+```bash
+npm install
+npm run dist:win   # produces dist/ACS AI Teams Setup <version>.exe (Windows only)
+npm run dist:mac   # produces dist/*.dmg — must be run on macOS
+```
+
+Or grab the latest build from CI: `.github/workflows/build-installers.yml`
+builds both installers on GitHub Actions (pushes to `release`, version tags,
+or manual dispatch) and uploads them as workflow artifacts; tagged builds also
+attach them to a **draft** GitHub Release.
+
+These builds are **unsigned** for now, so installing shows an OS warning:
+
+- **Windows (SmartScreen):** "More info" → "Run anyway"
+- **macOS (Gatekeeper):** right-click the app → "Open" (first launch only)
+
+Per-user data (sessions, scrollback, the saved Location) lives under the OS's
+standard per-user app-data folder for the packaged app, not next to the
+installed program files, so it survives reinstalls.
+
 ## Requirements
 
 - [Node.js](https://nodejs.org) (any recent LTS)
