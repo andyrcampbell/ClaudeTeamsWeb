@@ -65,7 +65,12 @@ function loadSettings() {
 }
 
 // Saved prompt templates (*.txt) shown in the Prompt dropdown.
-const PROMPTS_DIR = path.join(__dirname, "Prompts");
+// Prompts must live somewhere writable: in a packaged build __dirname is
+// inside app.asar, so saving a prompt or creating a category would fail. The
+// shipped copies are seeded into the per-user data dir on first run and read
+// and written there from then on, which also means edits survive an update.
+const BUNDLED_PROMPTS_DIR = path.join(__dirname, "Prompts");
+const PROMPTS_DIR = process.env.ACS_PROMPTS_DIR || BUNDLED_PROMPTS_DIR;
 
 app.use(express.json());
 // V2 UI (vertical accordion of terminals). Same app, alternative terminal layout.
@@ -186,6 +191,29 @@ function findClaudeDesktopWin() {
 }
 
 // --- persistence ------------------------------------------------------------
+
+// Copy a directory tree using only asar-aware fs calls (fs.cpSync is not).
+function copyTree(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const from = path.join(src, entry.name);
+    const to = path.join(dest, entry.name);
+    if (entry.isDirectory()) copyTree(from, to);
+    else fs.writeFileSync(to, fs.readFileSync(from));
+  }
+}
+
+function ensurePromptsDir() {
+  if (PROMPTS_DIR === BUNDLED_PROMPTS_DIR || fs.existsSync(PROMPTS_DIR)) return;
+  try {
+    copyTree(BUNDLED_PROMPTS_DIR, PROMPTS_DIR);
+    console.log("Seeded prompts into " + PROMPTS_DIR);
+  } catch (err) {
+    // An empty prompt library is survivable; failing to start is not.
+    console.warn("Could not seed prompts into " + PROMPTS_DIR + ": " + err.message);
+    fs.mkdirSync(PROMPTS_DIR, { recursive: true });
+  }
+}
 
 function ensureDataDir() {
   try {
@@ -543,6 +571,24 @@ app.get("/api/prompt-categories", (req, res) => {
     res.json({ categories });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Create a new category (a subdirectory of Prompts/).
+app.post("/api/prompt-categories", (req, res) => {
+  const { name } = req.body || {};
+  try {
+    const dir = promptCategoryDir(name);
+    if (dir === PROMPTS_DIR) {
+      return res.status(400).json({ error: "Please enter a category name." });
+    }
+    if (fs.existsSync(dir)) {
+      return res.status(400).json({ error: "That category already exists." });
+    }
+    fs.mkdirSync(dir, { recursive: true });
+    res.json({ name: name.trim() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -1240,6 +1286,7 @@ if (PTY_AVAILABLE) {
 // --- lifecycle --------------------------------------------------------------
 
 ensureDataDir();
+ensurePromptsDir();
 loadSettings();
 loadPersistedSessions();
 

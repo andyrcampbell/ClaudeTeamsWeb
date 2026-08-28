@@ -63,6 +63,9 @@ async function resolveTeamsLocation(dataDir) {
 
 function startServer(teamsLocation) {
   process.env.ACS_DATA_DIR = app.getPath("userData");
+  // Prompts are seeded here from the bundle on first run, so they stay
+  // editable and survive app updates instead of living inside app.asar.
+  process.env.ACS_PROMPTS_DIR = path.join(app.getPath("userData"), "Prompts");
   process.env.ACS_DEFAULT_LOCATION = teamsLocation;
   process.env.PORT = String(PORT);
   // Where the bundled interviewee photo pool lives, for server.js to seed from.

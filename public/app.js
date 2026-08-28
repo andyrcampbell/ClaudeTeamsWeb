@@ -780,6 +780,11 @@ document.addEventListener("keydown", (e) => {
 
 // --- saved prompt templates (with categories) ------------------------------
 const currentCategory = () => $("promptCategorySelect").value; // "" = top level
+// Sentinel for the "create one" entry pinned to the bottom of the dropdown.
+// "*" is rejected by the server's category validator, so no real category
+// can ever carry this value.
+const NEW_CATEGORY = "*new*";
+let lastCategory = "";
 const catQuery = () => `?category=${encodeURIComponent(currentCategory())}`;
 
 // Populate the category dropdown from the subdirectories of Prompts/.
@@ -794,6 +799,11 @@ async function loadPromptCategories() {
       o.textContent = cat;
       sel.appendChild(o);
     }
+    // Always last: picking this swaps in a text box to name a new category.
+    const add = document.createElement("option");
+    add.value = NEW_CATEGORY;
+    add.textContent = "+ New category…";
+    sel.appendChild(add);
   } catch {
     /* non-fatal */
   }
@@ -816,11 +826,59 @@ async function loadPromptList() {
   }
 }
 
+// Swap the dropdown for a text box to name a new category. Electron has no
+// window.prompt(), so the free-text entry has to live in the page.
+function showNewCategoryInput() {
+  const input = $("newCategoryInput");
+  $("promptCategorySelect").hidden = true;
+  input.hidden = false;
+  input.value = "";
+  input.focus();
+}
+
+function hideNewCategoryInput() {
+  $("newCategoryInput").hidden = true;
+  $("promptCategorySelect").hidden = false;
+}
+
 // Changing category refreshes the prompt list to that folder's files.
 $("promptCategorySelect").addEventListener("change", () => {
+  const sel = $("promptCategorySelect");
+  if (sel.value === NEW_CATEGORY) {
+    sel.value = lastCategory; // restore; the new category is selected once made
+    showNewCategoryInput();
+    return;
+  }
+  lastCategory = sel.value;
   $("promptSelect").value = "";
   loadPromptList();
 });
+
+// Enter creates the category and selects it; Escape or clicking away cancels.
+$("newCategoryInput").addEventListener("keydown", async (e) => {
+  if (e.key === "Escape") return hideNewCategoryInput();
+  if (e.key !== "Enter") return;
+  const name = e.target.value.trim();
+  if (!name) return hideNewCategoryInput();
+  try {
+    await api("/api/prompt-categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    hideNewCategoryInput();
+    await loadPromptCategories();
+    $("promptCategorySelect").value = name;
+    lastCategory = name;
+    $("promptSelect").value = "";
+    await loadPromptList();
+    toast(`Created prompt category "${name}".`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+$("newCategoryInput").addEventListener("blur", hideNewCategoryInput);
 
 // The little "×" in the prompt box clears the text.
 $("clearPromptBtn").addEventListener("click", () => {
