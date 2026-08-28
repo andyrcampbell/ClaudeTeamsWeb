@@ -9,9 +9,10 @@
 // to a path inside the read-only app.asar and crashed on startup. Requiring
 // it in-process sidesteps that entirely.)
 
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, dialog } = require("electron");
 const path = require("path");
 const http = require("http");
+const fs = require("fs");
 
 const PORT = process.env.PORT || 4173;
 const SERVER_URL = `http://127.0.0.1:${PORT}`;
@@ -31,10 +32,41 @@ function freePort() {
   }
 }
 
-function startServer() {
+// Ask, once, where the user wants their team folders to live, and create it.
+// A macOS .dmg has no installer UI to ask this in, so first run is the only
+// place the question can be put to both platforms alike. The answer goes into
+// the same settings.json the running app reads and writes.
+async function resolveTeamsLocation(dataDir) {
+  const settingsFile = path.join(dataDir, "settings.json");
+  try {
+    const saved = JSON.parse(fs.readFileSync(settingsFile, "utf8")).location;
+    if (saved && fs.existsSync(saved)) return saved;
+  } catch {
+    /* first run, or settings.json unreadable — ask below */
+  }
+
+  const fallback = path.join(app.getPath("home"), "MyAITeams");
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: "Choose where to keep your AI Teams",
+    message: "Each team you create becomes a folder here.",
+    defaultPath: app.getPath("home"),
+    buttonLabel: "Use this folder",
+    properties: ["openDirectory", "createDirectory"],
+  });
+
+  const chosen = !canceled && filePaths[0] ? filePaths[0] : fallback;
+  fs.mkdirSync(chosen, { recursive: true });
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(settingsFile, JSON.stringify({ location: chosen }, null, 2));
+  return chosen;
+}
+
+function startServer(teamsLocation) {
   process.env.ACS_DATA_DIR = app.getPath("userData");
-  process.env.ACS_DEFAULT_LOCATION = path.join(app.getPath("home"), "MyAITeams");
+  process.env.ACS_DEFAULT_LOCATION = teamsLocation;
   process.env.PORT = String(PORT);
+  // Where the bundled interviewee photo pool lives, for server.js to seed from.
+  if (app.isPackaged) process.env.ACS_RESOURCES_DIR = process.resourcesPath;
   require(SERVER_PATH);
 }
 
@@ -75,7 +107,8 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   freePort();
-  startServer();
+  const teamsLocation = await resolveTeamsLocation(app.getPath("userData"));
+  startServer(teamsLocation);
   try {
     await createWindow();
   } catch (err) {

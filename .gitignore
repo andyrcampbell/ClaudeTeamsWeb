@@ -20,7 +20,7 @@ _*.cjs
 _*.mjs
 
 # Stray data / helper files that live in the app dir but aren't part of the app
-Unassigned interviewees/
-Unassigned interviewees - Copy/
+/Unassigned interviewees/
+/Unassigned interviewees - Copy/
 split_headshots.py
 __pycache__/

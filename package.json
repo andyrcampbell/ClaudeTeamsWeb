@@ -1,6 +1,6 @@
 {
   "name": "claude-teams-web",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "ACS AI Teams - web rewrite of the ClaudeTeams WinForms utility",
   "main": "electron/main.js",
   "scripts": {
@@ -40,6 +40,12 @@
       "node_modules/**/*",
       "package.json",
       "!node_modules/@xterm/**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/Unassigned interviewees",
+        "to": "Unassigned interviewees"
+      }
     ],
     "asarUnpack": [
       "node_modules/node-pty/**/*",

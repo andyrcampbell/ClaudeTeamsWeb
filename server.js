@@ -97,8 +97,30 @@ function listTeams(location) {
     .map((d) => d.name);
 }
 
+// The team-setup prompts have Simon pick a profile photo from
+// "../Unassigned interviewees" — a sibling of the team folder — so the pool has
+// to live in the teams location, not inside the app (claude copies the file
+// with a shell cp, which cannot read inside app.asar). Packaged builds carry
+// the pool in Contents/Resources; running from source it sits in ./resources.
+const INTERVIEWEE_SRC = process.env.ACS_RESOURCES_DIR
+  ? path.join(process.env.ACS_RESOURCES_DIR, "Unassigned interviewees")
+  : path.join(__dirname, "resources", "Unassigned interviewees");
+
+function ensureInterviewees(location) {
+  const dest = path.join(location, "Unassigned interviewees");
+  if (fs.existsSync(dest) || !fs.existsSync(INTERVIEWEE_SRC)) return;
+  try {
+    fs.cpSync(INTERVIEWEE_SRC, dest, { recursive: true });
+    console.log("Seeded interviewee photos into " + dest);
+  } catch (err) {
+    // A missing photo pool only degrades the gallery — never block team creation.
+    console.warn("Could not seed interviewee photos into " + dest + ": " + err.message);
+  }
+}
+
 function ensureTeamFolders(teamDir) {
   const existed = fs.existsSync(teamDir);
+  ensureInterviewees(path.dirname(teamDir));
   fs.mkdirSync(teamDir, { recursive: true });
   for (const sub of TEAM_SUBFOLDERS) {
     fs.mkdirSync(path.join(teamDir, sub), { recursive: true });
@@ -373,7 +395,14 @@ function createSession(location, name, sessionName, resumeId) {
     renameScheduled: false,
   };
   sessions.set(id, session);
-  spawnPty(session);
+  try {
+    spawnPty(session);
+  } catch (err) {
+    // Never leave a half-created session in the map: it gets persisted to
+    // sessions.json and comes back as a phantom tab on every later launch.
+    sessions.delete(id);
+    throw err;
+  }
   writeRegistry();
   return { session, reused: false };
 }
