@@ -9,18 +9,124 @@
 // to a path inside the read-only app.asar and crashed on startup. Requiring
 // it in-process sidesteps that entirely.)
 
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, Menu, ipcMain, shell } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
+const { verifyLicenseKey, loadStoredLicense, saveLicense, loadTrialState, startTrial } = require("./license");
 
 const PORT = process.env.PORT || 4173;
 const SERVER_URL = `http://127.0.0.1:${PORT}`;
 const SERVER_PATH = path.join(__dirname, "..", "server.js");
 const FREE_PORT_SCRIPT = path.join(__dirname, "..", "scripts", "free-port.js");
 const ICON_PATH = path.join(__dirname, "..", "build", "icon.ico");
+// Keep in sync with the buy link hardcoded in license-gate.html.
+const BUY_URL = "https://buy.stripe.com/5kQ4gsg8UdRu3Tt6gi1VK00";
 
 let mainWindow = null;
+
+// Electron shows no context menu by default, so right-clicking a text field
+// (like the prompt textarea, or the license-key box) offered no Cut/Copy/
+// Paste. Add one for editable fields and plain text selections, for every
+// window/webContents the app creates (main window and the license gate).
+app.on("web-contents-created", (_event, contents) => {
+  contents.on("context-menu", (_e, params) => {
+    const items = [];
+    if (params.isEditable) {
+      items.push(
+        { role: "undo", enabled: params.editFlags.canUndo },
+        { role: "redo", enabled: params.editFlags.canRedo },
+        { type: "separator" },
+        { role: "cut", enabled: params.editFlags.canCut },
+        { role: "copy", enabled: params.editFlags.canCopy },
+        { role: "paste", enabled: params.editFlags.canPaste },
+        { type: "separator" },
+        { role: "selectAll", enabled: params.editFlags.canSelectAll }
+      );
+    } else if (params.selectionText) {
+      items.push({ role: "copy" });
+    }
+    if (items.length) Menu.buildFromTemplate(items).popup();
+  });
+});
+
+// Opens the activate/trial window in the given mode ("first" | "expired" |
+// "reactivate") and resolves true once the user unlocks the app (activates
+// a key or starts a trial) from it, or false if they just close it.
+function openGateWindow(dataDir, mode) {
+  return new Promise((resolve) => {
+    const gateWindow = new BrowserWindow({
+      width: 440,
+      height: 420,
+      resizable: false,
+      title: "Activate ACS AI Teams",
+      autoHideMenuBar: true,
+      webPreferences: {
+        preload: path.join(__dirname, "license-preload.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    gateWindow.loadFile(path.join(__dirname, "license-gate.html"), { query: { mode } });
+
+    let unlocked = false;
+
+    ipcMain.handle("license:activate", (_event, key) => {
+      const result = verifyLicenseKey(key);
+      if (!result.valid) return { ok: false, error: result.reason };
+      saveLicense(dataDir, key);
+      unlocked = true;
+      gateWindow.close();
+      return { ok: true };
+    });
+
+    ipcMain.handle("license:start-trial", () => {
+      startTrial(dataDir);
+      unlocked = true;
+      gateWindow.close();
+      return { ok: true };
+    });
+
+    gateWindow.on("closed", () => {
+      ipcMain.removeHandler("license:activate");
+      ipcMain.removeHandler("license:start-trial");
+      resolve(unlocked);
+    });
+  });
+}
+
+// Blocks until the app is unlocked — a valid license, or an active trial —
+// showing the activate/trial window if it isn't yet. Resolves { ok: false }
+// (caller should quit) if the user closes that window without unlocking.
+async function ensureLicensed(dataDir) {
+  if (loadStoredLicense(dataDir)) return { ok: true };
+
+  const trial = loadTrialState(dataDir);
+  if (trial && !trial.expired) return { ok: true, trialDaysLeft: trial.daysLeft };
+
+  const unlocked = await openGateWindow(dataDir, trial && trial.expired ? "expired" : "first");
+  if (!unlocked) return { ok: false };
+
+  if (loadStoredLicense(dataDir)) return { ok: true };
+  const newTrial = loadTrialState(dataDir);
+  if (newTrial && !newTrial.expired) return { ok: true, trialDaysLeft: newTrial.daysLeft };
+  return { ok: false };
+}
+
+// Lets a user who's mid-trial (or done with it) paste in a real license key
+// without quitting the app — invoked from the "I have a key" link in the
+// trial badge. Clears the badge on success.
+function reactivateFromBanner(dataDir) {
+  openGateWindow(dataDir, "reactivate").then((unlocked) => {
+    if (unlocked && mainWindow) {
+      mainWindow.webContents
+        .executeJavaScript(
+          "(function(){var b=document.getElementById('__acsTrialBadge');if(b)b.remove();})();"
+        )
+        .catch(() => {});
+    }
+  });
+}
 
 function freePort() {
   // Mirrors start.cmd/start.sh: kill whatever's already listening on our
@@ -92,7 +198,42 @@ function waitForServer(timeoutMs = 20000) {
   });
 }
 
-async function createWindow() {
+// Small floating badge (doesn't reflow the app's own layout) showing the
+// trial countdown, with links back into the gate window. The links use a
+// made-up "acs-license:" scheme purely so will-navigate can recognize and
+// intercept the click — nothing actually navigates there.
+function injectTrialBadge(daysLeft) {
+  if (!mainWindow) return;
+  const label = daysLeft <= 0 ? "Trial ends today" : `Trial — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
+  const html = `<span>${label}</span> <a href="acs-license:buy">Buy a license</a> &middot; <a href="acs-license:activate">I have a key</a>`;
+  mainWindow.webContents
+    .insertCSS(`
+      #__acsTrialBadge {
+        position: fixed; bottom: 14px; right: 14px; z-index: 2147483647;
+        background: rgba(30,34,42,0.92); color: #fff;
+        font: 12px -apple-system, "Segoe UI", sans-serif;
+        padding: 8px 12px; border-radius: 8px;
+        display: flex; align-items: center; gap: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      }
+      #__acsTrialBadge a { color: #8ab4ff; text-decoration: none; }
+      #__acsTrialBadge a:hover { text-decoration: underline; }
+    `)
+    .catch(() => {});
+  mainWindow.webContents
+    .executeJavaScript(`
+      (function() {
+        if (document.getElementById('__acsTrialBadge')) return;
+        var bar = document.createElement('div');
+        bar.id = '__acsTrialBadge';
+        bar.innerHTML = ${JSON.stringify(html)};
+        document.body.appendChild(bar);
+      })();
+    `)
+    .catch(() => {});
+}
+
+async function createWindow(trialDaysLeft) {
   await waitForServer();
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -105,15 +246,32 @@ async function createWindow() {
       nodeIntegration: false,
     },
   });
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url === "acs-license:buy") {
+      event.preventDefault();
+      shell.openExternal(BUY_URL);
+    } else if (url === "acs-license:activate") {
+      event.preventDefault();
+      reactivateFromBanner(app.getPath("userData"));
+    }
+  });
+  if (typeof trialDaysLeft === "number") {
+    mainWindow.webContents.once("did-finish-load", () => injectTrialBadge(trialDaysLeft));
+  }
   mainWindow.loadURL(SERVER_URL);
 }
 
 app.whenReady().then(async () => {
   freePort();
+  const licenseResult = await ensureLicensed(app.getPath("userData"));
+  if (!licenseResult.ok) {
+    app.quit();
+    return;
+  }
   const teamsLocation = await resolveTeamsLocation(app.getPath("userData"));
   startServer(teamsLocation);
   try {
-    await createWindow();
+    await createWindow(licenseResult.trialDaysLeft);
   } catch (err) {
     console.error(err.message);
     app.quit();

@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Activate ACS AI Teams</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    background: #1a1d23;
+    color: #e6e6e6;
+    font: 14px/1.5 -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    box-sizing: border-box;
+  }
+  form {
+    width: 380px;
+    padding: 28px;
+  }
+  h1 {
+    font-size: 17px;
+    margin: 0 0 6px;
+  }
+  p.sub {
+    margin: 0 0 18px;
+    color: #9aa0a6;
+  }
+  textarea {
+    width: 100%;
+    height: 90px;
+    box-sizing: border-box;
+    resize: none;
+    background: #22262e;
+    color: #e6e6e6;
+    border: 1px solid #3a3f47;
+    border-radius: 6px;
+    padding: 10px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px;
+  }
+  textarea:focus { outline: 1px solid #5b8def; }
+  button {
+    width: 100%;
+    margin-top: 12px;
+    padding: 10px;
+    background: #5b8def;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .error {
+    margin-top: 10px;
+    color: #f28b82;
+    min-height: 1.2em;
+    font-size: 13px;
+  }
+  .buy {
+    margin-top: 18px;
+    text-align: center;
+    font-size: 12px;
+    color: #9aa0a6;
+  }
+  .divider {
+    text-align: center;
+    color: #6b7178;
+    font-size: 11px;
+    margin: 16px 0 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  #trialBtn {
+    background: transparent;
+    border: 1px solid #3a3f47;
+    color: #e6e6e6;
+  }
+  #trialBtn:hover { border-color: #5b8def; }
+</style>
+</head>
+<body>
+  <form id="activateForm">
+    <h1 id="heading">Activate ACS AI Teams</h1>
+    <p class="sub" id="subtext">Paste the license key from your purchase confirmation.</p>
+    <textarea id="key" placeholder="ACS1...." autofocus></textarea>
+    <button id="submitBtn" type="submit">Activate</button>
+    <div class="error" id="error"></div>
+    <div id="trialSection">
+      <div class="divider">or</div>
+      <button id="trialBtn" type="button">Start 7-Day Free Trial</button>
+    </div>
+    <div class="buy">Don't have a license? <a href="https://buy.stripe.com/5kQ4gsg8UdRu3Tt6gi1VK00">Visit Alternative Concept Technologies to purchase</a></div>
+  </form>
+  <script>
+    const mode = new URLSearchParams(location.search).get("mode") || "first";
+    const heading = document.getElementById("heading");
+    const subtext = document.getElementById("subtext");
+    const trialSection = document.getElementById("trialSection");
+    const trialBtn = document.getElementById("trialBtn");
+
+    if (mode === "expired") {
+      heading.textContent = "Your trial has ended";
+      subtext.textContent = "Enter a license key to keep using ACS AI Teams.";
+      trialSection.style.display = "none";
+    } else if (mode === "reactivate") {
+      trialSection.style.display = "none";
+    }
+
+    const form = document.getElementById("activateForm");
+    const keyInput = document.getElementById("key");
+    const errorEl = document.getElementById("error");
+    const submitBtn = document.getElementById("submitBtn");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const key = keyInput.value.trim();
+      if (!key) return;
+      submitBtn.disabled = true;
+      errorEl.textContent = "";
+      try {
+        const result = await window.license.activate(key);
+        if (!result.ok) errorEl.textContent = result.error || "That key didn't work.";
+      } catch (err) {
+        errorEl.textContent = "Something went wrong activating that key.";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+
+    trialBtn.addEventListener("click", async () => {
+      trialBtn.disabled = true;
+      errorEl.textContent = "";
+      try {
+        const result = await window.license.startTrial();
+        if (!result.ok) {
+          errorEl.textContent = result.error || "Couldn't start your trial.";
+          trialBtn.disabled = false;
+        }
+      } catch (err) {
+        errorEl.textContent = "Couldn't start your trial.";
+        trialBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

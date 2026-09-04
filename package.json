@@ -1,6 +1,6 @@
 {
   "name": "claude-teams-web",
-  "version": "1.0.4",
+  "version": "1.0.7",
   "description": "ACS AI Teams - web rewrite of the ClaudeTeams WinForms utility",
   "main": "electron/main.js",
   "scripts": {
@@ -66,7 +66,15 @@
         "dmg"
       ],
       "category": "public.app-category.developer-tools",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     }
+  },
+  "allowScripts": {
+    "electron@31.7.7": true,
+    "node-pty@1.1.0": true
   }
 }

@@ -1,12 +1,32 @@
 name: Build installers
 
-# Produces an unsigned Windows .exe (NSIS) and macOS .dmg (x64 + arm64) via
+# Produces a Windows .exe (NSIS) and macOS .dmg (x64 + arm64) via
 # electron-builder. Runs on pushes to `release` and on version tags; version
 # tags additionally attach the installers to a draft GitHub Release for
-# review before publishing. This is a build/artifact pipeline for the
-# teammate-testing milestone — no code signing or notarization yet.
+# review before publishing.
 #
-# Notes on two things that are deliberate:
+# Signing / notarization are wired up but OFF by default (each step is
+# conditional on its secrets existing), so this workflow still produces
+# working unsigned builds until the secrets below are added in
+# Settings -> Secrets and variables -> Actions.
+#
+# --- Windows: signed via Azure Trusted Signing (cloud HSM, no USB token,
+#     works from a CI runner) -----------------------------------------------
+#   AZURE_TENANT_ID                    Entra tenant ID
+#   AZURE_CLIENT_ID                    App registration (service principal) ID
+#   AZURE_CLIENT_SECRET                App registration client secret
+#   AZURE_TRUSTED_SIGNING_ENDPOINT     e.g. https://eus.codesigning.azure.net
+#   AZURE_TRUSTED_SIGNING_ACCOUNT      Trusted Signing account name
+#   AZURE_CERT_PROFILE_NAME            Certificate profile name (Public Trust)
+#
+# --- macOS: signed with a Developer ID Application cert, then notarized ----
+#   MAC_CERTIFICATE_P12_BASE64         `base64 -i DeveloperIDApplication.p12`
+#   MAC_CERTIFICATE_PASSWORD           Password the .p12 was exported with
+#   APPLE_ID                           Apple ID email used for the dev account
+#   APPLE_APP_SPECIFIC_PASSWORD        App-specific password (appleid.apple.com)
+#   APPLE_TEAM_ID                      Team ID from developer.apple.com/account
+#
+# Notes on two other things that are deliberate:
 # - `--publish never`: with a tag present electron-builder otherwise tries to
 #   publish to GitHub Releases itself and fails on a missing GH_TOKEN. The
 #   draft-release job below owns publishing.
@@ -32,6 +52,22 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npx electron-builder --win --publish never
+      - name: Sign installer (Azure Trusted Signing)
+        if: ${{ secrets.AZURE_CLIENT_ID != '' }}
+        uses: Azure/trusted-signing-action@v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}\dist
+          files-folder-filter: exe
+          files-folder-depth: 1
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
@@ -46,6 +82,16 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npx electron-builder --mac --x64 --arm64 --publish never
+        env:
+          # electron-builder signs automatically when CSC_LINK is set, and
+          # (via @electron/notarize) notarizes automatically when the
+          # APPLE_* trio is set — no extra config needed beyond the
+          # hardenedRuntime/entitlements already in package.json's "build".
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       - uses: actions/upload-artifact@v4
         with:
           name: mac-installer
