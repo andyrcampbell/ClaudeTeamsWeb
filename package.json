@@ -7,7 +7,7 @@
     "start": "node server.js",
     "restart": "node scripts/free-port.js && node server.js",
     "stop": "node scripts/free-port.js",
-    "electron": "electron electron/main.js",
+    "electron": "node node_modules/electron/cli.js electron/main.js",
     "dist:win": "node node_modules/electron-builder/cli.js --win",
     "dist:mac": "node node_modules/electron-builder/cli.js --mac --x64 --arm64"
   },
