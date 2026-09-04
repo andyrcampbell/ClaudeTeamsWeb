@@ -216,6 +216,15 @@ phone over Tailscale:
 Manual equivalent (any platform): set `HOST` (bind address) and `ALLOWED_ORIGINS`
 (comma-separated) env vars, e.g. `HOST=0.0.0.0 ALLOWED_ORIGINS=http://<ip>:4173 npm start`.
 
+**Packaged app** (installed `.exe`/`.dmg`, not the dev checkout): same idea,
+same env vars — the Electron app forwards whatever `HOST`/`ALLOWED_ORIGINS`
+it was launched with straight through to the embedded server, defaulting to
+loopback-only when unset. Use `start-tailscale-app.cmd` (Windows) or
+`start-tailscale-app.sh` (macOS) from this repo checkout to auto-detect the
+Tailscale IP and launch the installed app in network mode; the running app
+shows a "Network access: http://..." badge in the top-left corner so you
+know it's active and what URL to open on the phone.
+
 Note: buttons that act on the OS — **Browse…**, **View Team Directory**, **Open
 Claude Desktop**, **Detach to OS window** — happen on the **host PC**, not the phone.
 Anyone on your tailnet who opens the page gets terminal access, so only share the

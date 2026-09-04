@@ -16,7 +16,14 @@ const fs = require("fs");
 const { verifyLicenseKey, loadStoredLicense, saveLicense, loadTrialState, startTrial } = require("./license");
 
 const PORT = process.env.PORT || 4173;
-const SERVER_URL = `http://127.0.0.1:${PORT}`;
+// Bind address, matching server.js's own contract (see networkUrl below).
+// The window and the readiness poll have to use whatever the server actually
+// binds to: with HOST set to e.g. a Tailscale IP, nothing is listening on
+// 127.0.0.1, so hardcoding loopback here would leave the app staring at a
+// connection-refused page.
+const HOST = process.env.HOST || "127.0.0.1";
+const LOCAL_HOST = HOST === "0.0.0.0" ? "127.0.0.1" : HOST;
+const SERVER_URL = `http://${LOCAL_HOST}:${PORT}`;
 const SERVER_PATH = path.join(__dirname, "..", "server.js");
 const FREE_PORT_SCRIPT = path.join(__dirname, "..", "scripts", "free-port.js");
 const ICON_PATH = path.join(__dirname, "..", "build", "icon.ico");
@@ -167,6 +174,18 @@ async function resolveTeamsLocation(dataDir) {
   return chosen;
 }
 
+// HOST / ALLOWED_ORIGINS: same contract server.js uses when run directly
+// (see start-tailscale.cmd for the dev flow, start-tailscale-app.cmd/.sh for
+// the packaged app) -- whatever the launching process set is left as-is and
+// simply flows through to server.js below, so the packaged app can be made
+// reachable from another device (e.g. a phone over Tailscale) the same way
+// the dev server can. Unset -> server.js's own default of 127.0.0.1
+// (loopback only), so a plain double-click launch is unaffected.
+function networkUrl() {
+  if (HOST === "127.0.0.1" || HOST === "0.0.0.0") return null;
+  return SERVER_URL;
+}
+
 function startServer(teamsLocation) {
   process.env.ACS_DATA_DIR = app.getPath("userData");
   // Prompts are seeded here from the bundle on first run, so they stay
@@ -174,6 +193,19 @@ function startServer(teamsLocation) {
   process.env.ACS_PROMPTS_DIR = path.join(app.getPath("userData"), "Prompts");
   process.env.ACS_DEFAULT_LOCATION = teamsLocation;
   process.env.PORT = String(PORT);
+  // server.js only accepts requests whose Origin is on its allow-list, which
+  // covers loopback by default. Once HOST moves the UI onto another address,
+  // this window's own origin has to be on that list too or the app rejects
+  // itself. The launcher scripts already set ALLOWED_ORIGINS; this makes a
+  // bare `HOST=<ip> "ACS AI Teams.exe"` launch behave the same way.
+  if (networkUrl()) {
+    const origins = (process.env.ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
+    if (!origins.includes(SERVER_URL)) origins.push(SERVER_URL);
+    process.env.ALLOWED_ORIGINS = origins.join(",");
+  }
   // Where the bundled interviewee photo pool lives, for server.js to seed from.
   if (app.isPackaged) process.env.ACS_RESOURCES_DIR = process.resourcesPath;
   require(SERVER_PATH);
@@ -233,6 +265,38 @@ function injectTrialBadge(daysLeft) {
     .catch(() => {});
 }
 
+// Small floating badge (top-left, so it never collides with the trial badge)
+// showing the URL other devices on the tailnet/LAN can reach this instance
+// at. Only shown when HOST was set to something other than loopback.
+function injectNetworkBadge(url) {
+  if (!mainWindow) return;
+  // Plain text, not a link -- it's here to be typed into a phone, not
+  // clicked (clicking would just navigate this window to itself).
+  const html = `<span>Network access: ${url}</span>`;
+  mainWindow.webContents
+    .insertCSS(`
+      #__acsNetworkBadge {
+        position: fixed; top: 14px; left: 14px; z-index: 2147483647;
+        background: rgba(30,34,42,0.92); color: #fff;
+        font: 12px -apple-system, "Segoe UI", sans-serif;
+        padding: 8px 12px; border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      }
+    `)
+    .catch(() => {});
+  mainWindow.webContents
+    .executeJavaScript(`
+      (function() {
+        if (document.getElementById('__acsNetworkBadge')) return;
+        var bar = document.createElement('div');
+        bar.id = '__acsNetworkBadge';
+        bar.innerHTML = ${JSON.stringify(html)};
+        document.body.appendChild(bar);
+      })();
+    `)
+    .catch(() => {});
+}
+
 async function createWindow(trialDaysLeft) {
   await waitForServer();
   mainWindow = new BrowserWindow({
@@ -257,6 +321,10 @@ async function createWindow(trialDaysLeft) {
   });
   if (typeof trialDaysLeft === "number") {
     mainWindow.webContents.once("did-finish-load", () => injectTrialBadge(trialDaysLeft));
+  }
+  const netUrl = networkUrl();
+  if (netUrl) {
+    mainWindow.webContents.once("did-finish-load", () => injectNetworkBadge(netUrl));
   }
   mainWindow.loadURL(SERVER_URL);
 }
