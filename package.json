@@ -8,8 +8,8 @@
     "restart": "node scripts/free-port.js && node server.js",
     "stop": "node scripts/free-port.js",
     "electron": "electron electron/main.js",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac --x64 --arm64"
+    "dist:win": "node node_modules/electron-builder/cli.js --win",
+    "dist:mac": "node node_modules/electron-builder/cli.js --mac --x64 --arm64"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
