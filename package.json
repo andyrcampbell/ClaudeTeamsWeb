@@ -1,6 +1,6 @@
 {
   "name": "claude-teams-web",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "ACS AI Teams - web rewrite of the ClaudeTeams WinForms utility",
   "main": "electron/main.js",
   "scripts": {
