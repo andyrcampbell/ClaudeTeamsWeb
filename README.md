@@ -3,6 +3,9 @@
 A web rewrite of the `ClaudeTeams` VB.NET WinForms utility. Same purpose and
 behaviour, delivered as a small local website instead of a desktop `.exe`.
 
+> **Using the app rather than building it?** See the
+> [User Guide](USER-GUIDE.md) — the whole screen, control by control.
+
 Because the app does real work on your machine — creating/deleting team folders
 and running `claude` — it runs as a **local Node server** bound to `127.0.0.1`.
 The browser is just the UI; the server does the filesystem and process work the
