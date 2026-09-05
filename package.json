@@ -9,7 +9,7 @@
     "stop": "node scripts/free-port.js",
     "electron": "node node_modules/electron/cli.js electron/main.js",
     "dist:win": "node node_modules/electron-builder/cli.js --win",
-    "dist:mac": "node node_modules/electron-builder/cli.js --mac --x64 --arm64"
+    "dist:mac": "node -e \"process.platform==='darwin'||(console.error('dist:mac must run on macOS -- electron-builder cannot build a .dmg anywhere else'),process.exit(1))\" && node node_modules/electron-builder/cli.js --mac --x64 --arm64"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
