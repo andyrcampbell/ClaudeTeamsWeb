@@ -32,7 +32,10 @@ const server = http.createServer(app);
 // Bind address. Defaults to localhost-only. Set HOST (e.g. to your Tailscale IP,
 // or 0.0.0.0) to allow access from other devices — see start-tailscale.cmd.
 const HOST = process.env.HOST || "127.0.0.1";
-const PORT = process.env.PORT || 4173;
+// 41730, deliberately not 4173: that is Vite's default `preview` port and a
+// crowded one generally, and scripts/free-port.js used to force-kill whoever
+// held it. Override with the PORT env var.
+const PORT = process.env.PORT || 41730;
 const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
 const PTY_AVAILABLE = pty !== null;
@@ -503,6 +506,19 @@ function loadPersistedSessions() {
 }
 
 // --- REST API ---------------------------------------------------------------
+
+// Identity probe. scripts/free-port.js asks this before killing whatever holds
+// our port, so a stranger's process on the same port is left alone; the pid
+// lets it target the exact process that is serving.
+app.get("/api/ping", (req, res) => {
+  let version = "";
+  try {
+    version = require("./package.json").version;
+  } catch {
+    /* not fatal - the app id is what free-port.js actually matches on */
+  }
+  res.json({ app: "acs-ai-teams", version, pid: process.pid });
+});
 
 app.get("/api/config", (req, res) => {
   res.json({ defaultLocation: savedLocation || DEFAULT_LOCATION, ptyAvailable: PTY_AVAILABLE });
@@ -1215,8 +1231,38 @@ const EXTRA_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
   .filter(Boolean);
 const ALLOWED_ORIGINS = [`http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`, ...EXTRA_ORIGINS];
 
+// A failed listen (most likely EADDRINUSE) arrives as an 'error' event, and the
+// uncaughtException handler further down would otherwise reduce it to a stack
+// trace. Report it in terms someone can act on instead.
+//
+// It has to be registered on the WebSocketServer as well: ws forwards the HTTP
+// server's 'error' events onto the wss, and an EventEmitter with no 'error'
+// listener throws from inside emit() -- which aborted the listener chain before
+// the handler on `server` was ever reached. Hence the WeakSet: with both
+// registered, the same error object arrives twice.
+//
+// Deliberately no throw and no process.exit(): in the packaged app this file
+// runs inside Electron's main process, and electron/main.js checks the port
+// for itself before ever getting here.
+const reportedErrors = new WeakSet();
+function reportServerError(err) {
+  if (reportedErrors.has(err)) return;
+  reportedErrors.add(err);
+  if (err.code === "EADDRINUSE") {
+    console.error(
+      `\n  Port ${PORT} is already in use by another program.\n` +
+        `  Close it, or set the PORT environment variable to start on a different port.\n`
+    );
+  } else {
+    console.error(`\n  Server error: ${err.message}\n`);
+  }
+  process.exitCode = 1;
+}
+server.on("error", reportServerError);
+
 if (PTY_AVAILABLE) {
   const wss = new WebSocketServer({ server, path: "/terminal" });
+  wss.on("error", reportServerError);
 
   wss.on("connection", (ws, req) => {
     const origin = req.headers.origin;

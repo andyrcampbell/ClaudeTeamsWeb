@@ -18,7 +18,7 @@ if not defined TSIP (
 )
 
 set "HOST=%TSIP%"
-set "ALLOWED_ORIGINS=http://%TSIP%:4173"
+set "ALLOWED_ORIGINS=http://%TSIP%:41730"
 
 echo Stopping any running instance...
 node scripts\free-port.js
@@ -28,7 +28,7 @@ echo ============================================================
 echo   ACS AI Teams - Tailscale mode
 echo   Open this on the PC or your iPhone (Tailscale connected):
 echo.
-echo       http://%TSIP%:4173
+echo       http://%TSIP%:41730
 echo.
 echo   (First time only: run the firewall command in the README
 echo    as Administrator if the page will not load.)

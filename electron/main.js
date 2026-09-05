@@ -15,7 +15,9 @@ const http = require("http");
 const fs = require("fs");
 const { verifyLicenseKey, loadStoredLicense, saveLicense, loadTrialState, startTrial } = require("./license");
 
-const PORT = process.env.PORT || 4173;
+// Keep in step with server.js's own default (see the note there on why
+// this is not 4173).
+const PORT = process.env.PORT || 41730;
 // Bind address, matching server.js's own contract (see networkUrl below).
 // The window and the readiness poll have to use whatever the server actually
 // binds to: with HOST set to e.g. a Tailscale IP, nothing is listening on
@@ -135,13 +137,16 @@ function reactivateFromBanner(dataDir) {
   });
 }
 
-function freePort() {
-  // Mirrors start.cmd/start.sh: kill whatever's already listening on our
-  // port before starting, so a relaunch doesn't collide with a leftover run.
+async function freePort() {
+  // Mirrors start.cmd/start.sh: stop a leftover run of *this app* that is still
+  // holding our port. It deliberately leaves an unrelated program alone, so this
+  // can return without having freed anything -- startServer then fails with a
+  // readable EADDRINUSE rather than us killing a stranger's process.
   try {
-    require(FREE_PORT_SCRIPT);
+    return await require(FREE_PORT_SCRIPT)(PORT);
   } catch (err) {
     console.warn("free-port step failed (continuing):", err.message);
+    return true; // couldn't check; let the server try and report for itself
   }
 }
 
@@ -330,18 +335,28 @@ async function createWindow(trialDaysLeft) {
 }
 
 app.whenReady().then(async () => {
-  freePort();
-  const licenseResult = await ensureLicensed(app.getPath("userData"));
-  if (!licenseResult.ok) {
-    app.quit();
-    return;
-  }
-  const teamsLocation = await resolveTeamsLocation(app.getPath("userData"));
-  startServer(teamsLocation);
   try {
+    // Checked up front: if the port is unusable, say so before putting the
+    // licence gate and the first-run folder picker in front of the user.
+    if (!(await freePort())) {
+      throw new Error(
+        `Port ${PORT} is already in use by another program on this machine.\n\n` +
+          `Close that program, or set the PORT environment variable to start ` +
+          `ACS AI Teams on a different port.`
+      );
+    }
+    const licenseResult = await ensureLicensed(app.getPath("userData"));
+    if (!licenseResult.ok) {
+      app.quit();
+      return;
+    }
+    const teamsLocation = await resolveTeamsLocation(app.getPath("userData"));
+    startServer(teamsLocation);
     await createWindow(licenseResult.trialDaysLeft);
   } catch (err) {
+    // A packaged app has no console to print to, so say it out loud.
     console.error(err.message);
+    dialog.showErrorBox("ACS AI Teams could not start", err.message);
     app.quit();
   }
 });

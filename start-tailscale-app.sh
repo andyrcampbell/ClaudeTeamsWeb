@@ -35,12 +35,12 @@ echo "============================================================"
 echo "  ACS AI Teams - Tailscale mode (packaged app)"
 echo "  Open this on the Mac or your iPhone (Tailscale connected):"
 echo
-echo "      http://$TSIP:4173"
+echo "      http://$TSIP:41730"
 echo
-echo "  (First time only: allow inbound connections on port 4173"
+echo "  (First time only: allow inbound connections on port 41730"
 echo "   from the Tailscale range, e.g. via macOS's application"
 echo "   firewall settings, if the page will not load.)"
 echo "============================================================"
 echo
 
-HOST="$TSIP" ALLOWED_ORIGINS="http://$TSIP:4173" "$APP_BIN" &
+HOST="$TSIP" ALLOWED_ORIGINS="http://$TSIP:41730" "$APP_BIN" &

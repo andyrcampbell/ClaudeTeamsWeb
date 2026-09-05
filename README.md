@@ -56,7 +56,7 @@ Then launch it:
 - **Windows:** double-click `start.cmd` (or run it in a terminal)
 - **macOS / Linux:** `./start.sh`
 
-…and open <http://127.0.0.1:4173>.
+…and open <http://127.0.0.1:41730>.
 
 Notes:
 
@@ -130,7 +130,7 @@ npm install      # first time only
 npm start
 ```
 
-Then open <http://127.0.0.1:4173> in your browser.
+Then open <http://127.0.0.1:41730> in your browser.
 
 To use a different port: `PORT=8080 npm start` (macOS/Linux) or
 `set PORT=8080 && npm start` (Windows).
@@ -208,13 +208,13 @@ phone over Tailscale:
 3. First time only — allow it through the firewall (elevated PowerShell):
    ```powershell
    New-NetFirewallRule -DisplayName "ACS AI Teams (Tailscale)" -Direction Inbound `
-     -Protocol TCP -LocalPort 4173 -RemoteAddress 100.64.0.0/10 -Action Allow
+     -Protocol TCP -LocalPort 41730 -RemoteAddress 100.64.0.0/10 -Action Allow
    ```
    (`100.64.0.0/10` is Tailscale's address range, so only tailnet devices can connect.)
-4. On the phone, open the printed URL, e.g. `http://<your-tailscale-ip>:4173`.
+4. On the phone, open the printed URL, e.g. `http://<your-tailscale-ip>:41730`.
 
 Manual equivalent (any platform): set `HOST` (bind address) and `ALLOWED_ORIGINS`
-(comma-separated) env vars, e.g. `HOST=0.0.0.0 ALLOWED_ORIGINS=http://<ip>:4173 npm start`.
+(comma-separated) env vars, e.g. `HOST=0.0.0.0 ALLOWED_ORIGINS=http://<ip>:41730 npm start`.
 
 **Packaged app** (installed `.exe`/`.dmg`, not the dev checkout): same idea,
 same env vars — the Electron app forwards whatever `HOST`/`ALLOWED_ORIGINS`

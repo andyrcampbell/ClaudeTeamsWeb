@@ -36,14 +36,14 @@ if not defined APPEXE (
 )
 
 set "HOST=%TSIP%"
-set "ALLOWED_ORIGINS=http://%TSIP%:4173"
+set "ALLOWED_ORIGINS=http://%TSIP%:41730"
 
 echo.
 echo ============================================================
 echo   ACS AI Teams - Tailscale mode (packaged app)
 echo   Open this on the PC or your iPhone (Tailscale connected):
 echo.
-echo       http://%TSIP%:4173
+echo       http://%TSIP%:41730
 echo.
 echo   (First time only: run the firewall command in the README
 echo    as Administrator if the page will not load.)
