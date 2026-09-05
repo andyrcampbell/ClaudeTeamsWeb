@@ -225,6 +225,14 @@ Tailscale IP and launch the installed app in network mode; the running app
 shows a "Network access: http://..." badge in the top-left corner so you
 know it's active and what URL to open on the phone.
 
+**Server already running?** If you started one with `start-tailscale.cmd` (or
+`start.cmd`) and then open the desktop app, the app **connects to that server**
+instead of taking the port from it — it shows a "Connected to the ACS AI Teams
+already running at `http://…`" badge, and closing the app window leaves the
+server (and your phone's session) alone. Earlier versions force-killed it, which
+silently dropped the phone. A port held by some *other* program still stops the
+app with a message, as before.
+
 Note: buttons that act on the OS — **Browse…**, **View Team Directory**, **Open
 Claude Desktop**, **Detach to OS window** — happen on the **host PC**, not the phone.
 Anyone on your tailnet who opens the page gets terminal access, so only share the

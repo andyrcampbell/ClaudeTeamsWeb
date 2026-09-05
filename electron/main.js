@@ -33,6 +33,13 @@ const ICON_PATH = path.join(__dirname, "..", "build", "icon.ico");
 const BUY_URL = "https://buy.stripe.com/5kQ4gsg8UdRu3Tt6gi1VK00";
 
 let mainWindow = null;
+// Where the window actually points. Normally SERVER_URL (the server we start
+// ourselves), but it moves to whatever address an already-running instance
+// answered on when we attach to one -- see the port check in whenReady.
+let serverUrl = SERVER_URL;
+// Whether server.js is running inside this process. False when we attached to
+// someone else's, which the shutdown path at the bottom has to know.
+let ownServerStarted = false;
 
 // Electron shows no context menu by default, so right-clicking a text field
 // (like the prompt textarea, or the license-key box) offered no Cut/Copy/
@@ -137,16 +144,21 @@ function reactivateFromBanner(dataDir) {
   });
 }
 
-async function freePort() {
-  // Mirrors start.cmd/start.sh: stop a leftover run of *this app* that is still
-  // holding our port. It deliberately leaves an unrelated program alone, so this
-  // can return without having freed anything -- startServer then fails with a
-  // readable EADDRINUSE rather than us killing a stranger's process.
+// Who already holds our port? Unlike start.cmd/start.sh, the app kills
+// nothing -- it only looks, and adapts:
+//   "free"     -- nobody there; start our own server, the ordinary case.
+//   "ours"     -- a live ACS AI Teams is already serving on this machine (say,
+//                 one launched by start-tailscale.cmd that a phone is using).
+//                 Attach to it. This used to force-kill it, which silently
+//                 dropped that phone the moment the desktop app was opened.
+//   "stranger" -- someone else's program; leave it be and say so.
+async function portHolder() {
   try {
-    return await require(FREE_PORT_SCRIPT)(PORT);
+    const { findInstance } = require(FREE_PORT_SCRIPT);
+    return await findInstance(PORT);
   } catch (err) {
-    console.warn("free-port step failed (continuing):", err.message);
-    return true; // couldn't check; let the server try and report for itself
+    console.warn("port check failed (continuing):", err.message);
+    return { state: "free" }; // couldn't check; let the server try and report for itself
   }
 }
 
@@ -214,13 +226,14 @@ function startServer(teamsLocation) {
   // Where the bundled interviewee photo pool lives, for server.js to seed from.
   if (app.isPackaged) process.env.ACS_RESOURCES_DIR = process.resourcesPath;
   require(SERVER_PATH);
+  ownServerStarted = true;
 }
 
 function waitForServer(timeoutMs = 20000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     (function poll() {
-      const req = http.get(SERVER_URL, (res) => {
+      const req = http.get(serverUrl, (res) => {
         res.destroy();
         resolve();
       });
@@ -270,39 +283,56 @@ function injectTrialBadge(daysLeft) {
     .catch(() => {});
 }
 
-// Small floating badge (top-left, so it never collides with the trial badge)
-// showing the URL other devices on the tailnet/LAN can reach this instance
-// at. Only shown when HOST was set to something other than loopback.
-function injectNetworkBadge(url) {
+// Small floating badge pinned to a screen corner (fixed, so it never reflows
+// the app's own layout). Shared by the network-URL and attached-instance
+// notices; the trial badge keeps its own copy because it carries links.
+function injectCornerBadge(id, corner, html) {
   if (!mainWindow) return;
-  // Plain text, not a link -- it's here to be typed into a phone, not
-  // clicked (clicking would just navigate this window to itself).
-  const html = `<span>Network access: ${url}</span>`;
   mainWindow.webContents
-    .insertCSS(`
-      #__acsNetworkBadge {
-        position: fixed; top: 14px; left: 14px; z-index: 2147483647;
+    .insertCSS(
+      `#${id} {
+        position: fixed; ${corner} z-index: 2147483647;
         background: rgba(30,34,42,0.92); color: #fff;
         font: 12px -apple-system, "Segoe UI", sans-serif;
         padding: 8px 12px; border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-      }
-    `)
+      }`
+    )
     .catch(() => {});
   mainWindow.webContents
-    .executeJavaScript(`
-      (function() {
-        if (document.getElementById('__acsNetworkBadge')) return;
+    .executeJavaScript(
+      `(function() {
+        if (document.getElementById(${JSON.stringify(id)})) return;
         var bar = document.createElement('div');
-        bar.id = '__acsNetworkBadge';
+        bar.id = ${JSON.stringify(id)};
         bar.innerHTML = ${JSON.stringify(html)};
         document.body.appendChild(bar);
-      })();
-    `)
+      })();`
+    )
     .catch(() => {});
 }
 
-async function createWindow(trialDaysLeft) {
+// The URL other devices on the tailnet/LAN can reach this instance at. Only
+// shown when HOST was set to something other than loopback. Plain text, not a
+// link -- it's here to be typed into a phone, not clicked (clicking would just
+// navigate this window to itself).
+function injectNetworkBadge(url) {
+  injectCornerBadge("__acsNetworkBadge", "top: 14px; left: 14px;", `<span>Network access: ${url}</span>`);
+}
+
+// Shown when this window is driving a server that was already running rather
+// than one of our own (see the port check in whenReady). Worth saying out
+// loud: the teams and terminals on screen belong to that instance, and closing
+// this window leaves it running -- your phone keeps its session.
+function injectAttachedBadge(url) {
+  injectCornerBadge(
+    "__acsAttachedBadge",
+    "top: 14px; left: 14px;",
+    `<span>Connected to the ACS AI Teams already running at ${url}</span>`
+  );
+}
+
+async function createWindow(trialDaysLeft, attachedUrl) {
   await waitForServer();
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -327,32 +357,52 @@ async function createWindow(trialDaysLeft) {
   if (typeof trialDaysLeft === "number") {
     mainWindow.webContents.once("did-finish-load", () => injectTrialBadge(trialDaysLeft));
   }
-  const netUrl = networkUrl();
+  // One badge, not two: when attached, the address on screen is the other
+  // instance's, so the attached notice already names the URL a phone can use.
+  const netUrl = attachedUrl || networkUrl();
   if (netUrl) {
-    mainWindow.webContents.once("did-finish-load", () => injectNetworkBadge(netUrl));
+    mainWindow.webContents.once("did-finish-load", () =>
+      attachedUrl ? injectAttachedBadge(attachedUrl) : injectNetworkBadge(netUrl)
+    );
   }
-  mainWindow.loadURL(SERVER_URL);
+  mainWindow.loadURL(serverUrl);
 }
 
 app.whenReady().then(async () => {
   try {
     // Checked up front: if the port is unusable, say so before putting the
     // licence gate and the first-run folder picker in front of the user.
-    if (!(await freePort())) {
+    const holder = await portHolder();
+    if (holder.state === "stranger") {
       throw new Error(
         `Port ${PORT} is already in use by another program on this machine.\n\n` +
           `Close that program, or set the PORT environment variable to start ` +
           `ACS AI Teams on a different port.`
       );
     }
+
+    // Attaching to an instance that is already serving: point the window at
+    // the address it answered on (which may be a Tailscale IP, where loopback
+    // has nothing listening) and skip starting a second server. Nothing else
+    // changes -- the window talks HTTP/ws to it exactly as a browser tab does.
+    const attachedUrl = holder.state === "ours" ? `http://${holder.host}:${PORT}` : null;
+    if (attachedUrl) {
+      serverUrl = attachedUrl;
+      console.log(`attaching to the ACS AI Teams already running at ${attachedUrl}`);
+    }
+
     const licenseResult = await ensureLicensed(app.getPath("userData"));
     if (!licenseResult.ok) {
       app.quit();
       return;
     }
-    const teamsLocation = await resolveTeamsLocation(app.getPath("userData"));
-    startServer(teamsLocation);
-    await createWindow(licenseResult.trialDaysLeft);
+    // The folder picker belongs to a server we are about to start; the running
+    // instance already has its own teams location, so don't ask (or write
+    // settings.json) on its behalf.
+    if (!attachedUrl) {
+      startServer(await resolveTeamsLocation(app.getPath("userData")));
+    }
+    await createWindow(licenseResult.trialDaysLeft, attachedUrl);
   } catch (err) {
     // A packaged app has no console to print to, so say it out loud.
     console.error(err.message);
@@ -369,5 +419,8 @@ app.on("window-all-closed", () => {
 // (flush scrollback, persist sessions) — self-signal on quit to reuse that
 // shutdown path rather than duplicating it here.
 app.on("before-quit", () => {
-  process.kill(process.pid, "SIGTERM");
+  // Guarded: when attached there is no server.js in this process to signal,
+  // and the instance we attached to is a separate process that has to survive
+  // this window closing.
+  if (ownServerStarted) process.kill(process.pid, "SIGTERM");
 });

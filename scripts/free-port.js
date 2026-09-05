@@ -12,8 +12,10 @@
 //
 // Async, and awaited by every caller, because the identity probe is a real HTTP
 // request: electron/main.js must not start its own server until this settles.
-// Used by `npm run restart`, `npm run stop`, the launcher scripts and
-// electron/main.js.
+// Used by `npm run restart`, `npm run stop` and the launcher scripts, which
+// all want the port to themselves. electron/main.js does NOT kill: it calls
+// findInstance() and attaches to a live instance instead, so launching the app
+// can't disconnect a phone talking to a server started by start-tailscale.cmd.
 const { execSync } = require("child_process");
 const http = require("http");
 
@@ -123,34 +125,54 @@ function killPid(port, pid) {
   }
 }
 
-async function freePort(port = process.env.PORT || 41730) {
+// Report who holds `port`, without touching them. Callers that want the port
+// to themselves use freePort() below; electron/main.js uses this to attach to
+// an instance that is already serving rather than take it out.
+//   { state: "free" }
+//   { state: "ours", host, info, pids }  -- a live ACS AI Teams answered /api/ping
+//   { state: "stranger", pids }          -- someone else's program, or no answer
+async function findInstance(port = process.env.PORT || 41730) {
   const sockets = listeningSockets(port);
-  if (sockets.length === 0) {
+  if (sockets.length === 0) return { state: "free" };
+
+  const pids = [...new Set(sockets.map((s) => s.pid))];
+  const found = await identifyAny(probeHosts(sockets), port);
+  if (!found) return { state: "stranger", pids };
+  return { state: "ours", host: found.host, info: found.info, pids };
+}
+
+async function freePort(port = process.env.PORT || 41730) {
+  const held = await findInstance(port);
+
+  if (held.state === "free") {
     console.log(`  port ${port} already free`);
     return true;
   }
 
-  const pids = [...new Set(sockets.map((s) => s.pid))];
-  const found = await identifyAny(probeHosts(sockets), port);
-  if (!found) {
+  if (held.state === "stranger") {
     console.warn(
-      `  port ${port} is held by PID ${pids.join(", ")}, which is not ACS AI Teams -- leaving it alone.\n` +
+      `  port ${port} is held by PID ${held.pids.join(", ")}, which is not ACS AI Teams -- leaving it alone.
+` +
         `  Stop that program, or set the PORT environment variable to start on a different port.`
     );
     return false;
   }
 
-  if (found.host !== "127.0.0.1") {
-    console.log(`  found a running ACS AI Teams on ${found.host}:${port}`);
+  if (held.host !== "127.0.0.1") {
+    console.log(`  found a running ACS AI Teams on ${held.host}:${port}`);
   }
   // Prefer the pid the app reported: it names the process actually serving,
   // so we don't take out a sibling that merely shares the listening socket.
-  const targets = pids.includes(String(found.info.pid)) ? [String(found.info.pid)] : pids;
+  const targets = held.pids.includes(String(held.info.pid)) ? [String(held.info.pid)] : held.pids;
   for (const pid of targets) killPid(port, pid);
   return true;
 }
 
+// Default export stays the killer, so `require(...)(PORT)` keeps working for
+// the npm stop/restart scripts and the launcher .cmd/.sh files.
 module.exports = freePort;
+module.exports.freePort = freePort;
+module.exports.findInstance = findInstance;
 
 // Still runnable directly (`node scripts/free-port.js`) for the launcher
 // scripts and the npm stop/restart scripts.
