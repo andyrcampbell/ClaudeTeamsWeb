@@ -1025,6 +1025,21 @@ on("promptSelect", "change", async (e) => {
   }
 });
 
+// --- version label ---------------------------------------------------------
+// Read from the server actually serving this page, not baked into the markup,
+// so it can't drift from the running build -- and so the desktop app shows the
+// version of the instance it attached to, which may not be its own.
+async function showVersion() {
+  const el = document.getElementById("appVersion");
+  if (!el) return;
+  try {
+    const { version } = await api("/api/ping");
+    if (version) el.textContent = "v" + version;
+  } catch {
+    /* a missing label is not worth an error; leave it blank */
+  }
+}
+
 // --- init ------------------------------------------------------------------
 (async function init() {
   try {
@@ -1034,6 +1049,7 @@ on("promptSelect", "change", async (e) => {
   } catch {
     locationInput.value = "M:\\MyStuff\\MyAITeams\\";
   }
+  showVersion(); // not awaited: a label shouldn't hold up startup
   await refreshTeams();
   await loadPromptCategories(); // populate the category dropdown from Prompts/ subfolders
   await loadPromptList(); // populate the Prompt dropdown for the current category

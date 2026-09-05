@@ -107,6 +107,14 @@ body::before {
   text-transform: uppercase;
   color: var(--muted-2);
 }
+.brand-version {
+  margin: 5px 0 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--muted-2);
+  opacity: 0.72;
+}
 .ui-switch {
   margin-top: 10px;
   font-size: 11px;
