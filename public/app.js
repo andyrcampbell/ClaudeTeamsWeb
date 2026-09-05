@@ -4,6 +4,15 @@
 // otherwise it falls back to launching a separate OS terminal window.
 
 const $ = (id) => document.getElementById(id);
+// Bind a top-level listener by id. The two layouts (index.html and
+// index-v2.html) share this script, so a control that exists in only one of
+// them must not throw and abort the rest of the file — that would take init()
+// with it and leave the page half-wired.
+function on(id, ev, fn) {
+  const el = $(id);
+  if (el) el.addEventListener(ev, fn);
+  else console.warn(`[acs] no #${id} in this layout — "${ev}" handler skipped`);
+}
 const locationInput = $("location");
 const teamNameInput = $("teamName");
 const teamList = $("teamList");
@@ -440,10 +449,10 @@ async function restoreSessions() {
   } catch {}
 }
 
-$("terminalMinimize").addEventListener("click", hideOverlay);
-$("terminalRestore").addEventListener("click", showOverlay);
+on("terminalMinimize", "click", hideOverlay);
+on("terminalRestore", "click", showOverlay);
 // Selecting a terminal from the main-UI dropdown opens it and switches to it.
-$("openTerminalsSelect").addEventListener("change", (e) => {
+on("openTerminalsSelect", "change", (e) => {
   const id = e.target.value;
   if (id && tabs.has(id)) {
     showOverlay();
@@ -453,7 +462,7 @@ $("openTerminalsSelect").addEventListener("change", (e) => {
 
 // Selecting a slash command types it into the currently-selected terminal (not
 // auto-submitted, so you can add arguments and press Enter).
-$("slashSelect").addEventListener("change", (e) => {
+on("slashSelect", "change", (e) => {
   const cmd = e.target.value;
   e.target.selectedIndex = 0; // reset so the same command can be picked again
   if (!cmd) return;
@@ -498,7 +507,7 @@ async function loadSessionResumes() {
 }
 
 // Selecting a session opens a terminal that resumes it (claude --resume <id>).
-$("resumeSelect").addEventListener("change", async (e) => {
+on("resumeSelect", "change", async (e) => {
   const id = e.target.value;
   const opt = e.target.selectedOptions[0];
   const label = opt?.textContent || "session";
@@ -549,13 +558,13 @@ async function saveLocation(loc) {
 }
 
 // Locked -> clicking Lock/Unlock unlocks and reveals Browse.
-$("lockBtn").addEventListener("click", () => {
+on("lockBtn", "click", () => {
   unlockLocation();
   locationInput.focus();
 });
 
 // Unlocked -> Browse opens the OS folder picker; on selection, update + re-lock.
-$("browseBtn").addEventListener("click", async () => {
+on("browseBtn", "click", async () => {
   try {
     const data = await api("/api/browse-folder", {
       method: "POST",
@@ -579,7 +588,7 @@ locationInput.addEventListener("change", async () => {
   await saveLocation(locationInput.value);
   lockLocation();
 });
-$("refreshBtn").addEventListener("click", () => {
+on("refreshBtn", "click", () => {
   teamNameInput.value = ""; // clear the team-name selection on manual refresh
   refreshTeams();
   loadSessionResumes(); // clears the resume list (no team selected)
@@ -589,7 +598,7 @@ $("refreshBtn").addEventListener("click", () => {
 teamNameInput.addEventListener("change", loadSessionResumes);
 
 // --- create / activate -----------------------------------------------------
-$("createBtn").addEventListener("click", async () => {
+on("createBtn", "click", async () => {
   const location = locationInput.value.trim();
   const name = teamNameInput.value.trim();
   if (!name) return toast("Please enter a team name.", true);
@@ -633,7 +642,7 @@ $("createBtn").addEventListener("click", async () => {
 });
 
 // --- delete ----------------------------------------------------------------
-$("deleteBtn").addEventListener("click", async () => {
+on("deleteBtn", "click", async () => {
   const location = locationInput.value.trim();
   const name = teamNameInput.value.trim();
   if (!name) return toast("Please enter a team name.", true);
@@ -656,7 +665,7 @@ $("deleteBtn").addEventListener("click", async () => {
 });
 
 // --- send text to selected terminal ----------------------------------------
-$("sendTextBtn").addEventListener("click", () => {
+on("sendTextBtn", "click", () => {
   const id = $("openTerminalsSelect").value;
   if (!id || !tabs.has(id)) return toast("Select an open terminal first.", true);
   const t = tabs.get(id);
@@ -676,7 +685,7 @@ $("sendTextBtn").addEventListener("click", () => {
 });
 
 // --- open Claude Desktop ---------------------------------------------------
-$("claudeDesktopBtn").addEventListener("click", async () => {
+on("claudeDesktopBtn", "click", async () => {
   toast("Opening Claude Desktop…"); // immediate feedback; the lookup can take a moment
   try {
     await api("/api/open-claude-desktop", { method: "POST" });
@@ -686,7 +695,7 @@ $("claudeDesktopBtn").addEventListener("click", async () => {
 });
 
 // --- view team directory ---------------------------------------------------
-$("viewDirBtn").addEventListener("click", async () => {
+on("viewDirBtn", "click", async () => {
   const location = locationInput.value.trim();
   const name = teamNameInput.value.trim();
   if (!name) return toast("Please select a team first.", true);
@@ -755,7 +764,7 @@ function renderMembers(location, name, members) {
   }
 }
 
-$("viewMembersBtn").addEventListener("click", async () => {
+on("viewMembersBtn", "click", async () => {
   const location = locationInput.value.trim();
   const name = teamNameInput.value.trim();
   if (!name) return toast("Please select a team first.", true);
@@ -770,8 +779,8 @@ $("viewMembersBtn").addEventListener("click", async () => {
   }
 });
 
-$("membersClose").addEventListener("click", closeMembers);
-$("membersOverlay").addEventListener("click", (e) => {
+on("membersClose", "click", closeMembers);
+on("membersOverlay", "click", (e) => {
   if (e.target === $("membersOverlay")) closeMembers(); // click backdrop to close
 });
 document.addEventListener("keydown", (e) => {
@@ -842,7 +851,7 @@ function hideNewCategoryInput() {
 }
 
 // Changing category refreshes the prompt list to that folder's files.
-$("promptCategorySelect").addEventListener("change", () => {
+on("promptCategorySelect", "change", () => {
   const sel = $("promptCategorySelect");
   if (sel.value === NEW_CATEGORY) {
     sel.value = lastCategory; // restore; the new category is selected once made
@@ -855,7 +864,7 @@ $("promptCategorySelect").addEventListener("change", () => {
 });
 
 // Enter creates the category and selects it; Escape or clicking away cancels.
-$("newCategoryInput").addEventListener("keydown", async (e) => {
+on("newCategoryInput", "keydown", async (e) => {
   if (e.key === "Escape") return hideNewCategoryInput();
   if (e.key !== "Enter") return;
   const name = e.target.value.trim();
@@ -878,17 +887,17 @@ $("newCategoryInput").addEventListener("keydown", async (e) => {
   }
 });
 
-$("newCategoryInput").addEventListener("blur", hideNewCategoryInput);
+on("newCategoryInput", "blur", hideNewCategoryInput);
 
 // The little "×" in the prompt box clears the text.
-$("clearPromptBtn").addEventListener("click", () => {
+on("clearPromptBtn", "click", () => {
   $("prompt").value = "";
   $("promptSelect").value = ""; // reset the "load a saved prompt" selector
   $("prompt").focus();
 });
 
 // Save the current text box as a prompt template in the SELECTED category.
-$("savePromptBtn").addEventListener("click", async () => {
+on("savePromptBtn", "click", async () => {
   const content = $("prompt").value;
   if (!content.trim()) return toast("Nothing to save — the text box is empty.", true);
 
@@ -917,7 +926,7 @@ $("savePromptBtn").addEventListener("click", async () => {
 });
 
 // Delete the selected prompt file (from the selected category) and clear the box.
-$("deletePromptBtn").addEventListener("click", async () => {
+on("deletePromptBtn", "click", async () => {
   const name = $("promptSelect").value;
   if (!name) return toast("Select a prompt in the dropdown to delete.", true);
   if (!confirm(`Delete the prompt file "${name}.txt" from disk? This cannot be undone.`)) return;
@@ -933,7 +942,7 @@ $("deletePromptBtn").addEventListener("click", async () => {
 });
 
 // Selecting a saved prompt clears the text box and loads that file's contents.
-$("promptSelect").addEventListener("change", async (e) => {
+on("promptSelect", "change", async (e) => {
   const name = e.target.value;
   if (!name) return;
   try {
