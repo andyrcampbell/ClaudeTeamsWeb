@@ -247,6 +247,14 @@ setInterval(evaluateTabStates, 800);
 
 // Build the tab (or stack row) + pane, spin up xterm, and attach the WebSocket.
 function createTab(id, name, location, sessionName) {
+  // The session poller and an explicit open can race for the same id; never
+  // build a second tab for a session we already have.
+  const existing = tabs.get(id);
+  if (existing) {
+    activateTab(id);
+    return existing;
+  }
+
   // Label with the session name, falling back to the team name. Duplicates get
   // numbered so tabs stay distinguishable.
   const base = (sessionName || "").trim() || name;
@@ -341,7 +349,7 @@ function createTab(id, name, location, sessionName) {
   const entry = {
     id, name, label, baseLabel: base, location, sessionName: sessionName || "",
     term, fit, ws: null, tabEl, paneEl, dotEl,
-    ended: false, lastDataTs: Date.now(), wasBusy: false, state: "none",
+    ended: false, createdTs: Date.now(), lastDataTs: Date.now(), wasBusy: false, state: "none",
   };
   tabs.set(id, entry);
   updateOpenTerminalsDropdown();
@@ -435,18 +443,81 @@ async function openTeamTerminal(location, name, sessionName, resume) {
   toast(data.created ? "Team created. Starting Claude…" : `Opened a terminal for "${data.name}".`);
 }
 
-// Restore tabs for sessions already running on the server (e.g. after reload).
-async function restoreSessions() {
-  if (!ptyAvailable) return;
+// --- keeping the tab strip in step with the server -------------------------
+// Terminals are server-side ptys and every client (this window, a phone over
+// Tailscale) is just a viewer, so one opened or killed on another device has to
+// show up here without a reload. Reconcile the local tabs against the server's
+// live session list: add what we're missing, mark ended what the server no
+// longer has. Ended tabs are kept (not removed) so their scrollback stays
+// readable until the user closes them.
+let syncingSessions = false;
+
+async function syncSessions(initial) {
+  if (!ptyAvailable || syncingSessions) return;
+  syncingSessions = true;
+  const asOf = Date.now(); // tabs created after this request went out are not "gone"
+  let sessions;
   try {
-    const { sessions } = await api("/api/terminal/sessions");
-    if (!sessions.length) return;
-    for (const s of sessions) {
-      if (!tabs.has(s.id)) createTab(s.id, s.name, s.location, s.sessionName);
-    }
+    ({ sessions } = await api("/api/terminal/sessions"));
+  } catch {
+    return; // offline, or the server is restarting; the next tick will retry
+  } finally {
+    syncingSessions = false;
+  }
+
+  const prevActive = activeTabId;
+  const prevFocus = document.activeElement;
+  const live = new Set(sessions.map((s) => s.id));
+  const added = [];
+
+  for (const s of sessions) {
+    if (tabs.has(s.id)) continue;
+    createTab(s.id, s.name, s.location, s.sessionName);
+    added.push({ id: s.id, label: (s.sessionName || "").trim() || s.name });
+  }
+  for (const [id, t] of tabs) {
+    if (!t.ended && t.createdTs < asOf && !live.has(id)) markTabEnded(id);
+  }
+
+  if (initial) {
     $("terminalOverlay").hidden = true; // don't steal focus on load; offer the pill
     updateRestorePill();
-  } catch {}
+    return;
+  }
+  if (!added.length) return;
+
+  // createTab activates what it builds; don't yank the user off the terminal
+  // they were watching, or out of the field they were typing in.
+  if (prevActive && tabs.has(prevActive)) activateTab(prevActive);
+  else if (LAYOUT === "stack") for (const a of added) collapseTab(a.id); // V2: leave the accordion shut
+  try { prevFocus && prevFocus.focus && prevFocus.focus(); } catch {}
+
+  toast(
+    added.length === 1
+      ? `"${added[0].label}" was opened elsewhere — it's listed here now.`
+      : `${added.length} terminals opened elsewhere are listed here now.`
+  );
+}
+
+// Restore tabs for sessions already running on the server (e.g. after reload).
+async function restoreSessions() {
+  await syncSessions(true);
+}
+
+// Poll while the page is visible, and sync immediately whenever the window
+// comes back to the foreground (covers a phone waking from sleep).
+const SESSION_POLL_MS = 4000;
+let sessionPollTimer = null;
+
+function startSessionPolling() {
+  if (sessionPollTimer || !ptyAvailable) return;
+  sessionPollTimer = setInterval(() => {
+    if (!document.hidden) syncSessions(false);
+  }, SESSION_POLL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) syncSessions(false);
+  });
+  window.addEventListener("focus", () => syncSessions(false));
 }
 
 on("terminalMinimize", "click", hideOverlay);
@@ -967,4 +1038,5 @@ on("promptSelect", "change", async (e) => {
   await loadPromptCategories(); // populate the category dropdown from Prompts/ subfolders
   await loadPromptList(); // populate the Prompt dropdown for the current category
   await restoreSessions(); // reconnect to any terminals still running server-side
+  startSessionPolling(); // ...and keep in step with terminals opened on other devices
 })();
